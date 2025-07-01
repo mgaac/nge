@@ -9,8 +9,6 @@ class aggregation_fn(Enum):
     MIN = 4
     MAX = 5
 
-    
-
 class mp_layer(nn.Module):
     def __init__(self, embedding_dim: int, skip_connections: bool, aggregation_fn: Enum):
         super().__init__()
@@ -160,9 +158,10 @@ class nge(nn.Module):
     def __init__(self, embedding_dim: int, skip_connections: bool, aggregation_fn: Enum, num_mp_layers: int):
         super(nge, self).__init__()
 
+        n_nodes = embedding_dim.shape[0]
+
         # Separate encoders for each algorithm
-        self.bfs_encoder = nn.Linear(embedding_dim, embedding_dim)
-        self.bf_encoder = nn.Linear(embedding_dim, embedding_dim)
+        self.encoder = nn.Linear(embedding_dim + 2 * n_nodes, embedding_dim)
 
         # Separate decoders for each algorithm
         self.bfs_decoder = bfs_decoder(embedding_dim)
@@ -186,26 +185,24 @@ class nge(nn.Module):
         node_embeddings, connection_matrix = data
 
         # Process through both algorithm-specific encoders
-        bfs_node_embeddings = self.bfs_encoder(node_embeddings)
-        bf_node_embeddings = self.bf_encoder(node_embeddings)
+        encoded_embeddings = self.encoder(node_embeddings)
         
         # Process through shared MPNN
-        bfs_processed_embeddings = self.processor((bfs_node_embeddings, connection_matrix))
-        bf_processed_embeddings = self.processor((bf_node_embeddings, connection_matrix))
+        processed_embeddings = self.processor((node_embeddings, connection_matrix))
         
         # Process through algorithm-specific decoders
-        bfs_output = self.bfs_decoder((bfs_processed_embeddings, connection_matrix))
-        bf_output = self.bf_decoder((bf_processed_embeddings, connection_matrix))
+        bfs_output = self.bfs_decoder((processed_embeddings, connection_matrix))
+        bf_output = self.bf_decoder((processed_embeddings, connection_matrix))
 
         # Calculate termination probabilities for each algorithm
         # BFS termination
-        bfs_avg_embeddings = mx.mean(bfs_processed_embeddings, axis=0)
-        bfs_termination_prob = self.bfs_termination_node(bfs_processed_embeddings) + self.bfs_termination_global(bfs_avg_embeddings) + self.bfs_termination_bias
+        bfs_avg_embeddings = mx.mean(processed_embeddings, axis=0)
+        bfs_termination_prob = self.bfs_termination_node(processed_embeddings) + self.bfs_termination_global(bfs_avg_embeddings) + self.bfs_termination_bias
         bfs_termination_prob = mx.mean(bfs_termination_prob, axis=0)
         
         # Bellman-Ford termination
-        bf_avg_embeddings = mx.mean(bf_processed_embeddings, axis=0)
-        bf_termination_prob = self.bf_termination_node(bf_processed_embeddings) + self.bf_termination_global(bf_avg_embeddings) + self.bf_termination_bias
+        bf_avg_embeddings = mx.mean(processed_embeddings, axis=0)
+        bf_termination_prob = self.bf_termination_node(processed_embeddings) + self.bf_termination_global(bf_avg_embeddings) + self.bf_termination_bias
         bf_termination_prob = mx.mean(bf_termination_prob, axis=0)
 
         termination_probs = {
@@ -213,5 +210,5 @@ class nge(nn.Module):
             'bf': bf_termination_prob
         }
 
-        return bfs_output, bf_output, termination_probs
+        return bfs_output, bf_output, termination_probs, processed_embeddings
     
