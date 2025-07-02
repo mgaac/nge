@@ -2,6 +2,7 @@ import mlx.core as mx
 import numpy as np
 from collections import deque
 import random
+import math
 
 def generate_random_graph(num_nodes, edge_prob=0.3, directed=False):
     """Generate a random graph with self-loops for all nodes."""
@@ -164,7 +165,7 @@ def generate_graph_dataset(num_graphs=100, min_nodes=5, max_nodes=20, embedding_
         connection_matrix = generate_random_graph(num_nodes, edge_prob=0.3)
         
         # Generate random node embeddings
-        node_embeddings = mx.random.normal([num_nodes, embedding_dim])
+        node_embeddings = mx.random.normal([num_nodes, embedding_dim], scale=math.sqrt(1.0 / embedding_dim))
         
         # Run algorithms
         start_node = random.randint(0, num_nodes - 1)

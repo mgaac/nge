@@ -123,8 +123,11 @@ class bf_decoder(nn.Module):
 
         self.embedding_dim = embedding_dim
         
-        # Bellman-Ford specific outputs
-        self.bf_distance_outputs = [nn.Linear(embedding_dim, 1) for _ in range(3)]
+        # Simplified Bellman-Ford distance head with proper initialization
+        # Use a single linear layer with proper initialization and output constraint
+        self.bf_distance_head = nn.Linear(embedding_dim, 64)
+        self.bf_distance_output = nn.Linear(64, 1)
+        
         self.bf_predecessor_prob = nn.Linear(2 * embedding_dim, 1)
 
     def __call__(self, data):
@@ -135,11 +138,13 @@ class bf_decoder(nn.Module):
         source_idx = connection_matrix[self.source_idx].astype(mx.int32)
         target_idx = connection_matrix[self.target_idx].astype(mx.int32)
 
-        # Bellman-Ford distance predictions - remove ReLU to allow negative distances
-        for layer in self.bf_distance_outputs[:-1]:
-            bf_distance_predictions = nn.relu(layer(node_embeddings))
-
-        bf_distance_predictions = self.bf_distance_outputs[-1](node_embeddings)
+        # Simplified distance prediction with stability improvements
+        distance_features = nn.relu(self.bf_distance_head(node_embeddings))
+        bf_distance_predictions = self.bf_distance_output(distance_features)
+        
+        # Apply ReLU to ensure non-negative distances (shortest paths can't be negative)
+        # Add small epsilon for numerical stability
+        bf_distance_predictions = nn.relu(bf_distance_predictions) + 1e-6
         bf_distance_predictions = bf_distance_predictions.squeeze()
 
         # Bellman-Ford predecessor predictions with efficient neighborhood-aware selection
@@ -177,12 +182,14 @@ class nge(nn.Module):
         # BFS termination head
         self.bfs_termination_node = nn.Linear(embedding_dim, 1, bias=False)
         self.bfs_termination_global = nn.Linear(embedding_dim, 1, bias=False)
-        self.bfs_termination_bias = mx.random.normal([1])
+        # Initialize bias to small value for stability (avoid large initial probabilities)
+        self.bfs_termination_bias = mx.zeros([1])
         
         # Bellman-Ford termination head
         self.bf_termination_node = nn.Linear(embedding_dim, 1, bias=False)
         self.bf_termination_global = nn.Linear(embedding_dim, 1, bias=False)
-        self.bf_termination_bias = mx.random.normal([1])
+        # Initialize bias to small value for stability (avoid large initial probabilities)
+        self.bf_termination_bias = mx.zeros([1])
     
         # Shared processor
         self.processor = mpnn(embedding_dim, skip_connections, aggregation_fn, num_mp_layers)

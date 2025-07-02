@@ -1,5 +1,7 @@
 import mlx.core as mx
 import mlx.nn as nn
+import mlx.utils as utils
+
 import mlx.optimizers as optimizers
 
 import numpy as np
@@ -23,6 +25,8 @@ def bf_loss_fn(bf_output, bf_distance_targets, bf_predecessor_targets):
     bf_distance_predictions, bf_predecessor_predictions = bf_output
 
     bf_distance_loss = nn.losses.mse_loss(bf_distance_predictions, bf_distance_targets, reduction='mean')
+    bf_distance_loss = bf_distance_loss * 0.1  # Scale down distance loss
+
     bf_predecessor_loss = nn.losses.cross_entropy(bf_predecessor_predictions, bf_predecessor_targets, reduction='mean')
 
     return bf_distance_loss + bf_predecessor_loss
@@ -49,7 +53,7 @@ def step_loss_fn(bfs_output, bf_output, termination_probs, target_bfs_state, tar
     return total_step_loss
 
 
-def graph_execution_loss_fn(model, graph_data):
+def graph_execution_loss_fn(model, graph_data, verbose=False):
     accumulated_loss = mx.array(0.0)
     previous_step_hidden_states = mx.zeros([*graph_data['node_embeddings'].shape])
 
@@ -73,56 +77,75 @@ def graph_execution_loss_fn(model, graph_data):
 
         model_input = (input_embeddings, graph_data['connection_matrix'])
 
-        # Print model input nicely formatted
-        print(f"\n--- Step {i} ---")
-        print("Model input:")
-        print("  input_embeddings shape:", input_embeddings.shape)
-        print("  input_embeddings (first 2 rows):\n", np.array(input_embeddings)[:2])
-        print("  connection_matrix shape:", graph_data['connection_matrix'].shape)
-        print("  connection_matrix (first 2 columns):\n", np.array(graph_data['connection_matrix'])[:, :2])
+        if verbose:
+            # Print model input, but truncate large vectors/matrices for readability
+            print(f"\n--- Step {i} ---")
+            print("Model input:")
+            print("  input_embeddings shape:", input_embeddings.shape)
+            np_input_embeddings = np.array(input_embeddings)
+            print("  input_embeddings (first 2 rows, first 8 cols):\n", np_input_embeddings[:2, :8])
+            print("  connection_matrix shape:", graph_data['connection_matrix'].shape)
+            np_conn = np.array(graph_data['connection_matrix'])
+            print("  connection_matrix (first 2 rows, first 8 cols):\n", np_conn[:2, :8])
 
-        # Print targets
-        print("Targets:")
-        print("  target_bfs_state shape:", np.array(target_bfs_state).shape)
-        print("  target_bfs_state (first 5):", np.array(target_bfs_state)[:5])
-        print("  target_distance_bf shape:", np.array(target_distance_bf).shape)
-        print("  target_distance_bf (first 5):", np.array(target_distance_bf)[:5])
-        print("  target_predecessor_bf shape:", np.array(target_predecessor_bf).shape)
-        # Handle both 1D and 2D target_predecessor_bf for printing
-        np_target_predecessor_bf = np.array(target_predecessor_bf)
-        if np_target_predecessor_bf.ndim == 2:
-            print("  target_predecessor_bf (first 2 rows):\n", np_target_predecessor_bf[:2, :5])
-        else:
-            print("  target_predecessor_bf (first 5):", np_target_predecessor_bf[:5])
-        print("  termination_targets:")
-        for k, v in termination_targets.items():
-            print(f"    {k}: shape {np.array(v).shape}, value {np.array(v)}")
+            # Print targets, truncating large arrays
+            print("Targets:")
+            np_target_bfs_state = np.array(target_bfs_state)
+            print("  target_bfs_state shape:", np_target_bfs_state.shape)
+            print("  target_bfs_state (first 8):", np_target_bfs_state[:8])
+            np_target_distance_bf = np.array(target_distance_bf)
+            print("  target_distance_bf shape:", np_target_distance_bf.shape)
+            print("  target_distance_bf (first 8):", np_target_distance_bf[:8])
+            np_target_predecessor_bf = np.array(target_predecessor_bf)
+            print("  target_predecessor_bf shape:", np_target_predecessor_bf.shape)
+            if np_target_predecessor_bf.ndim == 2:
+                print("  target_predecessor_bf (first 2 rows, first 8 cols):\n", np_target_predecessor_bf[:2, :8])
+            else:
+                print("  target_predecessor_bf (first 8):", np_target_predecessor_bf[:8])
+            print("  termination_targets:")
+            for k, v in termination_targets.items():
+                np_v = np.array(v)
+                if np_v.ndim == 0:
+                    print(f"    {k}: shape {np_v.shape}, value {np_v}")
+                else:
+                    print(f"    {k}: shape {np_v.shape}, first 8: {np_v.flat[:8]}")
+
+            # View model inputs (as requested)
+            print("Full model_input tuple types:", type(model_input[0]), type(model_input[1]))
 
         bfs_output, bf_output, termination_probs, processed_embeddings = model(model_input)
 
-        # Print model outputs nicely formatted
-        print("Model outputs:")
-        print("  bfs_output shape:", np.array(bfs_output).shape)
-        print("  bfs_output (first 5):", np.array(bfs_output)[:5])
-        if isinstance(bf_output, tuple) and len(bf_output) == 2:
-            bf_distance_pred, bf_pred_pred = bf_output
-            print("  bf_output[0] (distance) shape:", np.array(bf_distance_pred).shape)
-            print("  bf_output[0] (distance, first 5):", np.array(bf_distance_pred))
-            print("  bf_output[1] (predecessor) shape:", np.array(bf_pred_pred).shape)
-            np_bf_pred_pred = np.array(bf_pred_pred)
-            if np_bf_pred_pred.ndim == 2:
-                print("  bf_output[1] (predecessor, first 2 rows):\n", np_bf_pred_pred[:2, :5])
+        if verbose:
+            # Print model outputs, truncating large arrays
+            print("Model outputs:")
+            np_bfs_output = np.array(bfs_output)
+            print("  bfs_output shape:", np_bfs_output.shape)
+            print("  bfs_output (first 8):", np_bfs_output[:8])
+            if isinstance(bf_output, tuple) and len(bf_output) == 2:
+                bf_distance_pred, bf_pred_pred = bf_output
+                np_bf_distance_pred = np.array(bf_distance_pred)
+                np_bf_pred_pred = np.array(bf_pred_pred)
+                print("  bf_output[0] (distance) shape:", np_bf_distance_pred.shape)
+                print("  bf_output[0] (distance, first 8):", np_bf_distance_pred[:8])
+                print("  bf_output[1] (predecessor) shape:", np_bf_pred_pred.shape)
+                if np_bf_pred_pred.ndim == 2:
+                    print("  bf_output[1] (predecessor, first 2 rows, first 8 cols):\n", np_bf_pred_pred[:2, :8])
+                else:
+                    print("  bf_output[1] (predecessor, first 8):", np_bf_pred_pred[:8])
             else:
-                print("  bf_output[1] (predecessor, first 5):", np_bf_pred_pred[:5])
-        else:
-            print("  bf_output:", bf_output)
-        print("  termination_probs:")
-        for k, v in termination_probs.items():
-            print(f"    {k}: shape {np.array(v).shape}, value {np.array(v)}")
-        print("  processed_embeddings shape:", np.array(processed_embeddings).shape)
-        print("  processed_embeddings (first 2 rows):\n", np.array(processed_embeddings)[:2])
+                print("  bf_output:", bf_output)
+            print("  termination_probs:")
+            for k, v in termination_probs.items():
+                np_v = np.array(v)
+                if np_v.ndim == 0:
+                    print(f"    {k}: shape {np_v.shape}, value {np_v}")
+                else:
+                    print(f"    {k}: shape {np_v.shape}, first 8: {np_v.flat[:8]}")
+            np_processed_embeddings = np.array(processed_embeddings)
+            print("  processed_embeddings shape:", np_processed_embeddings.shape)
+            print("  processed_embeddings (first 2 rows, first 8 cols):\n", np_processed_embeddings[:2, :8])
 
-        # Compute each loss component separately for printing
+        # Compute each loss component separately for printing or not
         bf_distance_predictions, bf_predecessor_predictions = bf_output
         bf_distance_loss = nn.losses.mse_loss(bf_distance_predictions, target_distance_bf, reduction='mean')
         bf_predecessor_loss = nn.losses.cross_entropy(bf_predecessor_predictions, target_predecessor_bf, reduction='mean')
@@ -132,16 +155,17 @@ def graph_execution_loss_fn(model, graph_data):
 
         total_step_loss = bf_distance_loss + bf_predecessor_loss + bfs_state_loss + bf_termination_loss + bfs_termination_loss
 
-        # Print all loss components compactly
-        print(
-            f"  Step {i} loss: "
-            f"bf_dist={float(bf_distance_loss):.6f}, "
-            f"bf_pred={float(bf_predecessor_loss):.6f}, "
-            f"bfs_state={float(bfs_state_loss):.6f}, "
-            f"bf_term={float(bf_termination_loss):.6f}, "
-            f"bfs_term={float(bfs_termination_loss):.6f}, "
-            f"total={float(total_step_loss):.6f}"
-        )
+        if verbose:
+            # Print all loss components compactly
+            print(
+                f"  Step {i} loss: "
+                f"bf_dist={float(bf_distance_loss):.6f}, "
+                f"bf_pred={float(bf_predecessor_loss):.6f}, "
+                f"bfs_state={float(bfs_state_loss):.6f}, "
+                f"bf_term={float(bf_termination_loss):.6f}, "
+                f"bfs_term={float(bfs_termination_loss):.6f}, "
+                f"total={float(total_step_loss):.6f}"
+            )
 
         previous_step_hidden_states = processed_embeddings
         accumulated_loss += total_step_loss
@@ -162,7 +186,7 @@ def train_model(model, dataset, optimizer, epochs):
 
         for graph_data in dataset:
 
-            loss, grads = loss_and_grad_fn(model, graph_data)
+            loss, grads = loss_and_grad_fn(model, graph_data, verbose=False)
 
             optimizer.update(model, grads)
 
@@ -170,11 +194,12 @@ def train_model(model, dataset, optimizer, epochs):
 
             total_epoch_loss += loss
 
-        print(f"Epoch {epoch} loss: {total_epoch_loss / len(dataset)}")
+        if epoch % 10 == 0:
+            print(f"Epoch {epoch} loss: {total_epoch_loss / len(dataset)}")
 
 
 optimizer = optimizers.Adam(learning_rate=1e-5)
     
-train_model(model, dataset, optimizer, epochs=20)
+train_model(model, dataset, optimizer, epochs=1000)
 
     
