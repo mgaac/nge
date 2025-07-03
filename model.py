@@ -21,8 +21,8 @@ class mp_layer(nn.Module):
         self.skip_connections = skip_connections
         self.aggregation_fn = aggregation_fn
 
-        self.source_message_fn = mx.random.normal([embedding_dim, embedding_dim])
-        self.target_message_fn = mx.random.normal([embedding_dim, embedding_dim])
+        self.source_message_fn = nn.Linear(embedding_dim, embedding_dim, bias=False)
+        self.target_message_fn = nn.Linear(embedding_dim, embedding_dim, bias=False)
 
         self.update_fn = nn.Linear(embedding_dim, embedding_dim)
 
@@ -36,8 +36,8 @@ class mp_layer(nn.Module):
         source_idx = connection_matrix[self.source_idx].astype(mx.int32)
         target_idx = connection_matrix[self.target_idx].astype(mx.int32)
 
-        source_embeddings = node_embeddings @ self.source_message_fn
-        target_embeddings = node_embeddings @ self.target_message_fn
+        source_embeddings = self.source_message_fn(node_embeddings)
+        target_embeddings = self.target_message_fn(node_embeddings)
 
         filtered_source_embeddings = mx.take(source_embeddings, source_idx, axis=0)
         filtered_target_embeddings = mx.take(target_embeddings, target_idx, axis=0)
