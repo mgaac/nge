@@ -347,10 +347,9 @@ def run_bfs(num_nodes, connection_matrix, start_node=0):
     x_current[start_node] = 1.0
     states.append(mx.array(x_current))
     
-    # Run BFS iterations
+    # Run BFS iterations until convergence
     for iteration in range(num_nodes):  # At most num_nodes iterations needed
         x_next = [0.0] * num_nodes
-        changed = False
         
         for i in range(num_nodes):
             # x_i^(t+1) = 1 if x_i^(t) = 1 OR ∃j:(j,i)∈E ∧ x_j^(t) = 1
@@ -361,10 +360,12 @@ def run_bfs(num_nodes, connection_matrix, start_node=0):
                 for j in incoming_edges[i]:
                     if x_current[j] == 1.0:
                         x_next[i] = 1.0
-                        changed = True
                         break
         
-        if not changed:
+        # Check for convergence (no change from previous state)
+        if x_next == x_current:
+            # Add the final converged state before breaking
+            states.append(mx.array(x_next))
             break
             
         x_current = x_next
@@ -388,51 +389,91 @@ def run_bellman_ford(num_nodes, connection_matrix, start_node=0):
     # Replace +∞ with length of longest shortest path + 1 (num_nodes for unweighted graphs)
     max_distance = num_nodes + 1
     
+    # Calculate normalization factor: use num_nodes as the maximum attainable distance
+    # This ensures distance values are normalized to [0, 1] range for better model training
+    normalization_factor = float(num_nodes)
+    
     distance_history = []
     predecessor_history = []
     
     x_current = [max_distance] * num_nodes
     x_current[start_node] = 0.0
     
-    # Initialize predecessors: p_i^(t) = {i if i = s, -1 otherwise initially}
-    p_current = [-1] * num_nodes
+    # Initialize predecessors according to formulation: p_i^(t) = {i if i = s, argmin(...) if i ≠ s}
+    p_current = [0] * num_nodes
     p_current[start_node] = start_node
     
-    distance_history.append(mx.array(x_current))
+    # For all non-source nodes, compute initial argmin of incoming neighbors
+    for i in range(num_nodes):
+        if i == start_node:
+            continue
+        
+        if not incoming_edges[i]:  # No incoming edges - node isolated
+            p_current[i] = i  # Self-predecessor for isolated nodes
+        else:
+            # Compute argmin_{j:(j,i)∈E} x_j^(t) + e_ji^(t)
+            best_cost = float('inf')
+            best_predecessor = i  # default to self
+            for j, weight in incoming_edges[i]:
+                cost = x_current[j] + weight
+                if cost < best_cost:
+                    best_cost = cost
+                    best_predecessor = j
+            p_current[i] = best_predecessor
+    
+    # Normalize distances before storing
+    x_normalized = [x / normalization_factor for x in x_current]
+    distance_history.append(mx.array(x_normalized))
     predecessor_history.append(mx.array(p_current))
     
-    # Bellman-Ford iterations
+    # Bellman-Ford iterations - run for V-1 iterations or until convergence
     for iteration in range(num_nodes - 1):
         x_next = x_current.copy()
-        p_next = p_current.copy()
-        changed = False
+        p_next = [0] * num_nodes
         
         for i in range(num_nodes):
             if i == start_node:
+                # p_s = s always (from formulation)
+                p_next[i] = start_node
                 continue
                 
             # x_i^(t+1) = min(x_i^(t), min_{(j,i)∈E} x_j^(t) + e_ji^(t))
             min_distance = x_current[i]
-            best_predecessor = p_current[i]
             
             for j, weight in incoming_edges[i]:
                 new_distance = x_current[j] + weight
                 if new_distance < min_distance:
                     min_distance = new_distance
-                    best_predecessor = j
-                    changed = True
             
             x_next[i] = min_distance
-            # p_i^(t) = argmin_{j:(j,i)∈E} x_j^(t) + e_ji^(t)
-            if min_distance < max_distance:
+            
+            # p_i^(t) = argmin_{j:(j,i)∈E} x_j^(t) + e_ji^(t) (always compute for i ≠ s)
+            if not incoming_edges[i]:  # No incoming edges
+                p_next[i] = i  # Self-predecessor for isolated nodes
+            else:
+                best_cost = float('inf')
+                best_predecessor = i  # default to self
+                for j, weight in incoming_edges[i]:
+                    cost = x_current[j] + weight
+                    if cost < best_cost:
+                        best_cost = cost
+                        best_predecessor = j
                 p_next[i] = best_predecessor
         
-        if not changed:
+        # Check for convergence (no change from previous state)
+        if x_next == x_current and p_next == p_current:
+            # Add the final converged state before breaking
+            x_normalized = [x / normalization_factor for x in x_next]
+            distance_history.append(mx.array(x_normalized))
+            predecessor_history.append(mx.array(p_next))
             break
             
         x_current = x_next
         p_current = p_next
-        distance_history.append(mx.array(x_current))
+        
+        # Normalize distances before storing
+        x_normalized = [x / normalization_factor for x in x_current]
+        distance_history.append(mx.array(x_normalized))
         predecessor_history.append(mx.array(p_current))
     
     return distance_history, predecessor_history
@@ -475,9 +516,18 @@ def generate_graph_dataset(num_graphs=100, min_nodes=5, max_nodes=20, embedding_
             bfs_states, bf_distances, bf_predecessors
         )
         
-        # Create termination targets
-        bfs_termination_step = len([s for s in bfs_states if not mx.array_equal(s, bfs_states[-1])])
-        bf_termination_step = len([d for d in bf_distances if not mx.array_equal(d, bf_distances[-1])])
+        # Create termination targets - find when algorithms actually converged
+        bfs_termination_step = len(bfs_states)
+        for i in range(1, len(bfs_states)):
+            if mx.array_equal(bfs_states[i], bfs_states[i-1]):
+                bfs_termination_step = i
+                break
+        
+        bf_termination_step = len(bf_distances)
+        for i in range(1, len(bf_distances)):
+            if mx.array_equal(bf_distances[i], bf_distances[i-1]):
+                bf_termination_step = i
+                break
         
         # Create step-wise data
         graph_data = {
@@ -711,9 +761,18 @@ def _generate_single_graph(
             bfs_states, bf_distances, bf_predecessors
         )
         
-        # Create termination targets
-        bfs_termination_step = len([s for s in bfs_states if not mx.array_equal(s, bfs_states[-1])])
-        bf_termination_step = len([d for d in bf_distances if not mx.array_equal(d, bf_distances[-1])])
+        # Create termination targets - find when algorithms actually converged
+        bfs_termination_step = len(bfs_states)
+        for i in range(1, len(bfs_states)):
+            if mx.array_equal(bfs_states[i], bfs_states[i-1]):
+                bfs_termination_step = i
+                break
+        
+        bf_termination_step = len(bf_distances)
+        for i in range(1, len(bf_distances)):
+            if mx.array_equal(bf_distances[i], bf_distances[i-1]):
+                bf_termination_step = i
+                break
         
         # Create step-wise data
         graph_data = {
