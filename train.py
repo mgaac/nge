@@ -63,6 +63,65 @@ def step_loss_fn(bfs_output, bf_output, termination_probs, target_bfs_state, tar
     return total_step_loss
 
 
+def calculate_step_metrics(bf_output, bfs_output, termination_probs, target_bfs_state, target_distance_bf, target_predecessor_bf, termination_targets):
+    """Calculate accuracy metrics for a single step."""
+    bf_distance_predictions, bf_predecessor_predictions = bf_output
+    
+    # Calculate accuracies
+    bfs_pred_binary = (bfs_output > 0.5).astype(mx.float32)
+    bfs_accuracy = mx.mean(bfs_pred_binary == target_bfs_state)
+    
+    distance_tolerance = 1.0  # Accept predictions within 1.0 of target
+    distance_within_tolerance = mx.abs(bf_distance_predictions - target_distance_bf) <= distance_tolerance
+    bf_distance_accuracy = mx.mean(distance_within_tolerance)
+    
+    bf_pred_argmax = mx.argmax(bf_predecessor_predictions, axis=-1)
+    bf_predecessor_accuracy = mx.mean(bf_pred_argmax == target_predecessor_bf)
+    
+    bf_term_pred = (termination_probs['bf'] > 0.5).astype(mx.float32)
+    bf_term_accuracy = float(bf_term_pred == termination_targets['bf'])
+    
+    bfs_term_pred = (termination_probs['bfs'] > 0.5).astype(mx.float32)
+    bfs_term_accuracy = float(bfs_term_pred == termination_targets['bfs'])
+    
+    return {
+        "bfs_accuracy": float(bfs_accuracy),
+        "bf_distance_accuracy": float(bf_distance_accuracy),
+        "bf_predecessor_accuracy": float(bf_predecessor_accuracy),
+        "bf_term_accuracy": bf_term_accuracy,
+        "bfs_term_accuracy": bfs_term_accuracy,
+    }
+
+
+def print_step_details(step_idx, bf_output, bfs_output, termination_probs, target_bfs_state, target_distance_bf, target_predecessor_bf, termination_targets, losses):
+    """Print detailed information for a single step."""
+    bf_distance_predictions, bf_predecessor_predictions = bf_output
+    
+    print(f"\n--- Step {step_idx} ---")
+    print(f"  Losses: bf_dist={float(losses['bf_distance_loss']):.4f}, bf_pred={float(losses['bf_predecessor_loss']):.4f}, "
+          f"bfs_state={float(losses['bfs_state_loss']):.4f}, bf_term={float(losses['bf_termination_loss']):.4f}, "
+          f"bfs_term={float(losses['bfs_termination_loss']):.4f}, total={float(losses['total_step_loss']):.4f}")
+    
+    # Calculate accuracies for printing
+    metrics = calculate_step_metrics(bf_output, bfs_output, termination_probs, target_bfs_state, target_distance_bf, target_predecessor_bf, termination_targets)
+    distance_tolerance = 1.0
+    print(f"  Accuracies: bfs_state={metrics['bfs_accuracy']:.3f}, bf_dist(±{distance_tolerance})={metrics['bf_distance_accuracy']:.3f}, "
+          f"bf_pred={metrics['bf_predecessor_accuracy']:.3f}, bf_term={metrics['bf_term_accuracy']:.3f}, bfs_term={metrics['bfs_term_accuracy']:.3f}")
+    
+    # Show full vectors for visible outputs
+    print(f"  Full vectors:")
+    print(f"    BFS state: pred={np.array(bfs_output).round(3)}, target={np.array(target_bfs_state)}")
+    print(f"    BF distance: pred={np.array(bf_distance_predictions).round(3)}, target={np.array(target_distance_bf)}")
+    
+    bf_pred_argmax = mx.argmax(bf_predecessor_predictions, axis=-1)
+    print(f"    BF predecessor: argmax={np.array(bf_pred_argmax)}, target={np.array(target_predecessor_bf)}")
+    print(f"    Termination: bf={np.array(termination_probs['bf']).round(3)}, bfs={np.array(termination_probs['bfs']).round(3)}")
+    
+    # Show magnitudes for hidden states (predecessor predictions before argmax)
+    bf_pred_magnitudes = np.linalg.norm(np.array(bf_predecessor_predictions), axis=-1)
+    print(f"    BF predecessor magnitudes: {bf_pred_magnitudes.round(3)}")
+
+
 def graph_execution_loss_fn(model, graph_data, verbose=False, wandb_log_dict=None):
     accumulated_loss = mx.array(0.0)
     previous_step_hidden_states = mx.zeros([*graph_data['node_embeddings'].shape])
@@ -104,7 +163,7 @@ def graph_execution_loss_fn(model, graph_data, verbose=False, wandb_log_dict=Non
 
         bfs_output, bf_output, termination_probs, processed_embeddings = model(model_input)
 
-        # Compute each loss component separately for printing or not
+        # Compute each loss component separately
         bf_distance_predictions, bf_predecessor_predictions = bf_output
         bf_distance_loss = nn.losses.mse_loss(bf_distance_predictions, target_distance_bf, reduction='mean')
         bf_predecessor_loss = nn.losses.cross_entropy(bf_predecessor_predictions, target_predecessor_bf, reduction='mean')
@@ -115,21 +174,7 @@ def graph_execution_loss_fn(model, graph_data, verbose=False, wandb_log_dict=Non
         total_step_loss = bf_distance_loss + bf_predecessor_loss + bfs_state_loss + bf_termination_loss + bfs_termination_loss
 
         # Calculate accuracy measures for wandb logging
-        bfs_pred_binary = (bfs_output > 0.5).astype(mx.float32)
-        bfs_accuracy = mx.mean(bfs_pred_binary == target_bfs_state)
-        
-        distance_tolerance = 1.0  # Accept predictions within 1.0 of target
-        distance_within_tolerance = mx.abs(bf_distance_predictions - target_distance_bf) <= distance_tolerance
-        bf_distance_accuracy = mx.mean(distance_within_tolerance)
-        
-        bf_pred_argmax = mx.argmax(bf_predecessor_predictions, axis=-1)
-        bf_predecessor_accuracy = mx.mean(bf_pred_argmax == target_predecessor_bf)
-        
-        bf_term_pred = (termination_probs['bf'] > 0.5).astype(mx.float32)
-        bf_term_accuracy = float(bf_term_pred == termination_targets['bf'])
-        
-        bfs_term_pred = (termination_probs['bfs'] > 0.5).astype(mx.float32)
-        bfs_term_accuracy = float(bfs_term_pred == termination_targets['bfs'])
+        accuracy_metrics = calculate_step_metrics(bf_output, bfs_output, termination_probs, target_bfs_state, target_distance_bf, target_predecessor_bf, termination_targets)
 
         # Accumulate for wandb logging
         if wandb_log_dict is not None:
@@ -139,24 +184,22 @@ def graph_execution_loss_fn(model, graph_data, verbose=False, wandb_log_dict=Non
             step_metrics["bf_termination_loss"].append(float(bf_termination_loss))
             step_metrics["bfs_termination_loss"].append(float(bfs_termination_loss))
             step_metrics["total_step_loss"].append(float(total_step_loss))
-            step_metrics["bfs_accuracy"].append(float(bfs_accuracy))
-            step_metrics["bf_distance_accuracy"].append(float(bf_distance_accuracy))
-            step_metrics["bf_predecessor_accuracy"].append(float(bf_predecessor_accuracy))
-            step_metrics["bf_term_accuracy"].append(float(bf_term_accuracy))
-            step_metrics["bfs_term_accuracy"].append(float(bfs_term_accuracy))
+            step_metrics["bfs_accuracy"].append(accuracy_metrics["bfs_accuracy"])
+            step_metrics["bf_distance_accuracy"].append(accuracy_metrics["bf_distance_accuracy"])
+            step_metrics["bf_predecessor_accuracy"].append(accuracy_metrics["bf_predecessor_accuracy"])
+            step_metrics["bf_term_accuracy"].append(accuracy_metrics["bf_term_accuracy"])
+            step_metrics["bfs_term_accuracy"].append(accuracy_metrics["bfs_term_accuracy"])
 
         if verbose:
-            print(f"\n--- Step {i} ---")
-            print(f"  Losses: bf_dist={float(bf_distance_loss):.4f}, bf_pred={float(bf_predecessor_loss):.4f}, "
-                  f"bfs_state={float(bfs_state_loss):.4f}, bf_term={float(bf_termination_loss):.4f}, "
-                  f"bfs_term={float(bfs_termination_loss):.4f}, total={float(total_step_loss):.4f}")
-            print(f"  Accuracies: bfs_state={float(bfs_accuracy):.3f}, bf_dist(±{distance_tolerance})={float(bf_distance_accuracy):.3f}, "
-                  f"bf_pred={float(bf_predecessor_accuracy):.3f}, bf_term={bf_term_accuracy:.3f}, bfs_term={bfs_term_accuracy:.3f}")
-            sample_size = min(5, len(target_bfs_state))
-            print(f"  Sample predictions (first {sample_size}):")
-            print(f"    BFS: pred={np.array(bfs_output[:sample_size]).round(3)}, target={np.array(target_bfs_state[:sample_size])}")
-            print(f"    BF dist: pred={np.array(bf_distance_predictions[:sample_size]).round(3)}, target={np.array(target_distance_bf[:sample_size])}")
-            print(f"    BF pred: argmax={np.array(bf_pred_argmax[:sample_size])}, target={np.array(target_predecessor_bf[:sample_size])}")
+            losses = {
+                'bf_distance_loss': bf_distance_loss,
+                'bf_predecessor_loss': bf_predecessor_loss,
+                'bfs_state_loss': bfs_state_loss,
+                'bf_termination_loss': bf_termination_loss,
+                'bfs_termination_loss': bfs_termination_loss,
+                'total_step_loss': total_step_loss
+            }
+            print_step_details(i, bf_output, bfs_output, termination_probs, target_bfs_state, target_distance_bf, target_predecessor_bf, termination_targets, losses)
 
         previous_step_hidden_states = processed_embeddings
         accumulated_loss += total_step_loss
@@ -185,7 +228,7 @@ def train_model(model, dataset, optimizer, epochs):
         total_epoch_loss = 0
         wandb_epoch_metrics = {}
 
-        # Only print verbose output for the first graph in each epoch, but only every 10 epochs
+        # Only print verbose output for the first graph in each epoch, but only every 100 epochs
         print_this_epoch = (epoch % 100 == 0)
         for i, graph_data in enumerate(dataset):
             verbose = print_this_epoch and (i == 0)
