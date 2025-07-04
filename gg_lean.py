@@ -163,80 +163,82 @@ def bfs_log(
 
     return reachability_log
 
-
-
 def generated_dataset(num_graphs=100, num_nodes=20, p=0.2, m=2):
 
-    edge_matrices = []
-    bf_logs = {
-        "predecessor": [],
-        "distance": [],
-    }
-    bfs_logs = {
-        "reachability": [],
-    }
+    dataset = []
 
     for _ in range(num_graphs):
-        ba = append_uniform_edge_weights(barabasi_albert_edge_matrix(num_nodes, m))
-        er = append_uniform_edge_weights(erdos_renyi_edge_matrix(num_nodes, p))
+        # Randomly choose graph type
+        if mx.random.uniform() < 0.5:
+            edge_matrix = append_uniform_edge_weights(barabasi_albert_edge_matrix(num_nodes, m))
+        else:
+            edge_matrix = append_uniform_edge_weights(erdos_renyi_edge_matrix(num_nodes, p))
 
-        edge_matrices.append(ba)
-        edge_matrices.append(er)
-
-    for graph in edge_matrices:
         source_node = mx.random.randint(0, num_nodes).item()
 
-        bf_distance, bf_predecessor = bellman_ford_log(graph, source_node, num_nodes)
+        # Bellman-Ford logs
+        bf_distance, bf_predecessor = bellman_ford_log(edge_matrix, source_node, num_nodes)
+        bf_distance = clean_bf_logs(bf_distance)
+        bf_predecessor = clean_bf_logs(bf_predecessor)
 
-        bfs_reachability = bfs_log(graph, source_node, num_nodes)
+        # BFS logs
+        bfs_reachability = bfs_log(edge_matrix, source_node, num_nodes)
+        bfs_reachability = mx.array(bfs_reachability)
 
-        bf_logs["predecessor"].append(mx.array(clean_bf_logs(bf_predecessor)))
-        bf_logs["distance"].append(mx.array(clean_bf_logs(bf_distance)))
-        bfs_logs["reachability"].append(mx.array(bfs_reachability))
+        graph_dict = {
+            "num_nodes": num_nodes,
+            "edge_matrix": edge_matrix,
+            "source_node": source_node,
+            "bf_distance_targets": bf_distance,
+            "bf_predecessor_targets": bf_predecessor,
+            "bfs_state_targets": bfs_reachability,
+        }
+        dataset.append(graph_dict)
 
-    dataset = {
-        "edge_matrices": edge_matrices,
-        "bf_logs": bf_logs,
-        "bfs_logs": bfs_logs,
-    }
     return dataset
 
-dataset = generated_dataset(10, 10, 0.2, 2)
 
-def dataset_overview(dataset):
-    print("DATASET OVERVIEW")
-    print("=" * 40)
-    edge_matrices = dataset.get("edge_matrices", [])
-    bf_logs = dataset.get("bf_logs", {})
-    bfs_logs = dataset.get("bfs_logs", {})
+def save_dataset(dataset, filename):
+    """
+    Save a dataset (as returned by generated_dataset) to disk using numpy's savez.
+    This will store all arrays in a compressed .npz file.
+    """
+    # Flatten the dataset list for saving
+    save_dict = {}
+    save_dict["num_graphs"] = len(dataset)
+    
+    for i, graph_dict in enumerate(dataset):
+        # Save each graph's data
+        save_dict[f"num_nodes_{i}"] = graph_dict["num_nodes"]
+        save_dict[f"edge_matrix_{i}"] = np.array(graph_dict["edge_matrix"])
+        save_dict[f"source_node_{i}"] = graph_dict["source_node"]
+        save_dict[f"bf_distance_targets_{i}"] = np.array(graph_dict["bf_distance_targets"])
+        save_dict[f"bf_predecessor_targets_{i}"] = np.array(graph_dict["bf_predecessor_targets"])
+        save_dict[f"bfs_state_targets_{i}"] = np.array(graph_dict["bfs_state_targets"])
+    
+    np.savez_compressed(filename, **save_dict)
 
-    print(f"Number of graphs: {len(edge_matrices)}")
-    if edge_matrices:
-        print(f"Edge matrix shape (first graph): {mx.array(edge_matrices[0]).shape}")
-        print(f"Edge matrix dtype (first graph): {mx.array(edge_matrices[0]).dtype}")
-    print()
-
-    # Bellman-Ford logs
-    print("Bellman-Ford logs:")
-    for k, v in bf_logs.items():
-        print(f"  {k}: {len(v)} entries")
-        if v:
-            print(f"    Shape of first entry: {v[0].shape}")
-            print(f"    Dtype of first entry: {v[0].dtype}")
-    print()
-
-    # BFS logs
-    print("BFS logs:")
-    for k, v in bfs_logs.items():
-        print(f"  {k}: {len(v)} entries")
-        if v:
-            print(f"    Shape of first entry: {v[0].shape}")
-            print(f"    Dtype of first entry: {v[0].dtype}")
-    print("=" * 40)
-
-# Example usage:
-dataset_overview(dataset)
+def load_dataset(filename):
+    """
+    Load a dataset saved with save_dataset.
+    Returns a list in the same format as generated_dataset.
+    """
+    loaded = np.load(filename, allow_pickle=True)
+    num_graphs = int(loaded["num_graphs"])
+    
+    dataset = []
+    for i in range(num_graphs):
+        graph_dict = {
+            "num_nodes": int(loaded[f"num_nodes_{i}"]),
+            "edge_matrix": mx.array(loaded[f"edge_matrix_{i}"]),
+            "source_node": int(loaded[f"source_node_{i}"]),
+            "bf_distance_targets": mx.array(loaded[f"bf_distance_targets_{i}"]),
+            "bf_predecessor_targets": mx.array(loaded[f"bf_predecessor_targets_{i}"]),
+            "bfs_state_targets": mx.array(loaded[f"bfs_state_targets_{i}"]),
+        }
+        dataset.append(graph_dict)
+    
+    return dataset
 
 
-
-
+save_dataset(generated_dataset(100, 20, 0.2, 2), "dataset.npz")
