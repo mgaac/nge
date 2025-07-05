@@ -110,7 +110,8 @@ def clean_bf_logs(log: List[List[float]] | List[List[int | None]]) -> mx.array:
         finite_vals = [x for x in log[-1] if x != float('inf')]
         inf_replacement = (max(finite_vals) + 1) if finite_vals else 1e6
         def clean_val(x):
-            return inf_replacement if x == float('inf') else x
+            cleaned = inf_replacement if x == float('inf') else x
+            return cleaned / inf_replacement
     else:
         # Replace None with 0
         def clean_val(x):
@@ -241,4 +242,5 @@ def load_dataset(filename):
     return dataset
 
 
-save_dataset(generated_dataset(100, 20, 0.2, 2), "dataset.npz")
+save_dataset(generated_dataset(2, 20, 0.2, 2), "dataset.npz")
+

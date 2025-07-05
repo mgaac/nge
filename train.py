@@ -8,6 +8,11 @@ import numpy as np
 
 from model import nge, aggregation_fn
 from gg_lean import load_dataset
+from logger import (
+    log_graph_execution_details, log_step_details, log_model_inputs,
+    log_model_outputs, log_targets, log_losses, log_execution_summary,
+    log_epoch_loss, set_verbose
+)
 
 MODEL_CONFIG = {
     'embedding_dim': 128,
@@ -64,21 +69,26 @@ def graph_execution_loss_fn(model, graph_data):
 
     num_steps = max(num_bf_steps, num_bfs_steps)
     
+    # Log graph execution details
+    log_graph_execution_details(graph_data, num_steps, MODEL_CONFIG)
+    
     for i in range(num_steps):
-        # Only compute loss if the sample exists in all required arrays
+        # Check if samples exist
         bf_sample_exists = i < num_bf_steps and (i + 1) < num_bf_steps
         bfs_sample_exists = i < num_bfs_steps and (i + 1) < num_bfs_steps
+
+        # Log step details
+        log_step_details(i, bf_sample_exists, bfs_sample_exists)
 
         # If neither sample exists, skip this step
         if not (bf_sample_exists or bfs_sample_exists):
             continue
 
-        # Use available data, or fallback to last available one if not present
+        # Prepare data for current step
         if bfs_sample_exists:
             true_bfs_state = graph_data['bfs_state_targets'][i]
             target_bfs_state = graph_data['bfs_state_targets'][i+1]
         else:
-            # Use last available
             true_bfs_state = graph_data['bfs_state_targets'][-1]
             target_bfs_state = graph_data['bfs_state_targets'][-1]
 
@@ -88,13 +98,12 @@ def graph_execution_loss_fn(model, graph_data):
             target_distance_bf = graph_data['bf_distance_targets'][i+1]
             target_predecessor_bf = graph_data['bf_predecessor_targets'][i+1]
         else:
-            # Use last available
             true_distance_bf = graph_data['bf_distance_targets'][-1]
             true_predecessor_bf = graph_data['bf_predecessor_targets'][-1]
             target_distance_bf = graph_data['bf_distance_targets'][-1]
             target_predecessor_bf = graph_data['bf_predecessor_targets'][-1]
 
-        # Generate termination targets based on index and algorithm: only set to 1 for the last step of each algorithm
+        # Generate termination targets
         is_last_bf_step = (i + 1) == (num_bf_steps - 1)
         is_last_bfs_step = (i + 1) == (num_bfs_steps - 1)
         termination_targets = {
@@ -102,17 +111,27 @@ def graph_execution_loss_fn(model, graph_data):
             'bfs': mx.array(1.0 if is_last_bfs_step else 0.0)
         }
 
+        # Prepare model inputs
         node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf, true_predecessor_bf]).reshape([-1, 3])
         input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
-
         model_input = (input_embeddings, graph_data['edge_matrix'])
 
+        # Log model inputs
+        log_model_inputs(input_embeddings, graph_data['edge_matrix'], previous_step_hidden_states, 
+                        node_algo_features, true_bfs_state, true_distance_bf, true_predecessor_bf, num_nodes)
+
+        # Forward pass
         bfs_output, bf_output, termination_probs, processed_embeddings = model(model_input)
 
-        # Compute each loss component separately, but only if the sample exists
-        bf_distance_predictions, bf_predecessor_predictions = bf_output
+        # Log model outputs
+        log_model_outputs(bfs_output, bf_output, termination_probs, processed_embeddings, num_nodes)
 
+        # Log targets
+        log_targets(target_bfs_state, target_distance_bf, target_predecessor_bf, termination_targets, num_nodes)
+
+        # Compute losses
         if bf_sample_exists:
+            bf_distance_predictions, bf_predecessor_predictions = bf_output
             bf_distance_loss = nn.losses.mse_loss(bf_distance_predictions, target_distance_bf, reduction='mean')
             bf_predecessor_loss = nn.losses.cross_entropy(bf_predecessor_predictions, target_predecessor_bf, reduction='mean')
             bf_termination_loss = nn.losses.binary_cross_entropy(termination_probs['bf'], termination_targets['bf'], reduction='mean')
@@ -130,10 +149,17 @@ def graph_execution_loss_fn(model, graph_data):
 
         total_step_loss = bf_distance_loss + bf_predecessor_loss + bfs_state_loss + bf_termination_loss + bfs_termination_loss
 
+        # Log losses
+        log_losses(bf_distance_loss, bf_predecessor_loss, bfs_state_loss, bf_termination_loss, bfs_termination_loss, total_step_loss)
+
+        # Update for next step
         previous_step_hidden_states = processed_embeddings
         accumulated_loss += total_step_loss
 
     average_loss = accumulated_loss / (num_steps - 1)
+    
+    # Log execution summary
+    log_execution_summary(average_loss)
 
     return average_loss
 
@@ -143,16 +169,22 @@ loss_and_grad_fn = nn.value_and_grad(model, graph_execution_loss_fn)
 mx.eval(model.parameters())
 
 
-def train_model(model, dataset, optimizer, epochs):
+def train_model(model, dataset, optimizer, epochs, print_last_epoch_only=False):
 
     for epoch in range(epochs):
+        
+        # Set verbosity based on print_last_epoch_only flag
+        if print_last_epoch_only:
+            set_verbose(epoch == epochs - 1)  # Only verbose on last epoch
+        else:
+            set_verbose(True)  # Always verbose
 
         total_epoch_loss = 0
 
         for i, graph_data in enumerate(dataset):
 
             loss, grads = loss_and_grad_fn(model, graph_data)
-            cliped_grads, total_norm = optim.clip_grad_norm(grads, max_norm=1.0)
+            cliped_grads, total_norm = optim.clip_grad_norm(grads, max_norm=.5)
 
             optimizer.update(model, cliped_grads)
 
@@ -161,11 +193,9 @@ def train_model(model, dataset, optimizer, epochs):
             total_epoch_loss += loss
 
         avg_epoch_loss = float(total_epoch_loss) / len(dataset)
-        print(f"Epoch {epoch} loss: {avg_epoch_loss}")
+        log_epoch_loss(epoch, avg_epoch_loss)
 
 
 optimizer = optim.Adam(learning_rate=1e-5)
     
-train_model(model, dataset, optimizer, epochs=20)
-
-
+train_model(model, dataset, optimizer, epochs=2000, print_last_epoch_only=True)
