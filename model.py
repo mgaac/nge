@@ -178,18 +178,9 @@ class nge(nn.Module):
         self.bfs_decoder = bfs_decoder(embedding_dim)
         self.bf_decoder = bf_decoder(embedding_dim)
 
-        # Separate termination heads for each algorithm
-        # BFS termination head
-        self.bfs_termination_node = nn.Linear(embedding_dim, 1, bias=False)
-        self.bfs_termination_global = nn.Linear(embedding_dim, 1, bias=False)
-        # Initialize bias to small value for stability (avoid large initial probabilities)
-        self.bfs_termination_bias = mx.zeros([1])
-        
-        # Bellman-Ford termination head
-        self.bf_termination_node = nn.Linear(embedding_dim, 1, bias=False)
-        self.bf_termination_global = nn.Linear(embedding_dim, 1, bias=False)
-        # Initialize bias to small value for stability (avoid large initial probabilities)
-        self.bf_termination_bias = mx.zeros([1])
+        # Separate termination heads for each algorithm 
+        self.bfs_termination = nn.Linear(embedding_dim, 1, bias=True)
+        self.bf_termination = nn.Linear(embedding_dim, 1, bias=True)
     
         # Shared processor
         self.processor = mpnn(embedding_dim, skip_connections, aggregation_fn, num_mp_layers)
@@ -207,18 +198,11 @@ class nge(nn.Module):
         bfs_output = self.bfs_decoder((processed_embeddings, connection_matrix))
         bf_output = self.bf_decoder((processed_embeddings, connection_matrix))
 
-        # Calculate termination probabilities for each algorithm
-        # BFS termination
-        bfs_avg_embeddings = mx.mean(processed_embeddings, axis=0)
-        bfs_termination_prob = self.bfs_termination_node(processed_embeddings) + self.bfs_termination_global(bfs_avg_embeddings) + self.bfs_termination_bias
-        bfs_termination_prob = mx.mean(bfs_termination_prob, axis=0)
-        bfs_termination_prob = mx.sigmoid(bfs_termination_prob.squeeze())
-        
-        # Bellman-Ford termination
-        bf_avg_embeddings = mx.mean(processed_embeddings, axis=0)
-        bf_termination_prob = self.bf_termination_node(processed_embeddings) + self.bf_termination_global(bf_avg_embeddings) + self.bf_termination_bias
-        bf_termination_prob = mx.mean(bf_termination_prob, axis=0)
-        bf_termination_prob = mx.sigmoid(bf_termination_prob.squeeze())
+        avg_embeddings = mx.mean(processed_embeddings, axis=0)
+
+        bfs_termination_prob = mx.sigmoid(self.bfs_termination(avg_embeddings).squeeze())
+
+        bf_termination_prob = mx.sigmoid(self.bf_termination(avg_embeddings).squeeze())
         
         termination_probs = {
             'bfs': bfs_termination_prob,

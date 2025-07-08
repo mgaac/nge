@@ -242,5 +242,5 @@ def load_dataset(filename):
     return dataset
 
 
-save_dataset(generated_dataset(2, 20, 0.2, 2), "dataset.npz")
+save_dataset(generated_dataset(700, 20, 0.2, 2), "dataset.npz")
 
