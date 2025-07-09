@@ -24,6 +24,8 @@ class mp_layer(nn.Module):
         self.source_message_fn = nn.Linear(embedding_dim, embedding_dim, bias=False)
         self.target_message_fn = nn.Linear(embedding_dim, embedding_dim, bias=False)
 
+        self.layer_norm = nn.LayerNorm(embedding_dim)
+
         self.update_fn = nn.Linear(embedding_dim, embedding_dim)
 
     def __call__(self, connection_matrix, node_embeddings):
@@ -57,15 +59,26 @@ class mp_layer(nn.Module):
             agg_message = mx.zeros([num_nodes, self.embedding_dim])
             agg_message = agg_message.at[target_idx].add(message)
             denominator = mx.zeros([num_nodes, 1]).at[target_idx].add(1)
-            agg_message = agg_message /  mx.maximum(denominator, -1e6)
+            # Fix: Use small positive epsilon instead of large negative number
+            agg_message = agg_message / mx.maximum(denominator, 1e-6)
 
         elif (self.aggregation_fn == aggregation_fn.MAX):
-            agg_message = mx.full([num_nodes, self.embedding_dim], -1e6)
+            # Use more reasonable initialization value and handle nodes with no incoming edges
+            agg_message = mx.full([num_nodes, self.embedding_dim], -1e3)
             agg_message = agg_message.at[target_idx].maximum(message)
+            # For nodes with no incoming messages, reset to zero
+            has_incoming = mx.zeros([num_nodes, 1]).at[target_idx].add(1) > 0
+            agg_message = mx.where(has_incoming, agg_message, mx.zeros_like(agg_message))
 
         elif (self.aggregation_fn == aggregation_fn.MIN):
-            agg_message = mx.full([num_nodes, self.embedding_dim], 1e6)
+            # Use more reasonable initialization value and handle nodes with no incoming edges  
+            agg_message = mx.full([num_nodes, self.embedding_dim], 1e3)
             agg_message = agg_message.at[target_idx].minimum(message)
+            # For nodes with no incoming messages, reset to zero
+            has_incoming = mx.zeros([num_nodes, 1]).at[target_idx].add(1) > 0
+            agg_message = mx.where(has_incoming, agg_message, mx.zeros_like(agg_message))
+
+        agg_message = self.layer_norm(agg_message)
 
         new_node_embeddings = self.update_fn(agg_message)
         new_node_embeddings = nn.relu(new_node_embeddings)
@@ -83,7 +96,8 @@ class mpnn(nn.Module):
         self.skip_connections = skip_connections
         self.aggregation_function_fn = aggregation_fn
 
-        self.mp_layer = [
+        # Fix: Use proper module list for parameter tracking
+        self.mp_layers = [
             mp_layer(embedding_dim, skip_connections, aggregation_fn)
             for _ in range(num_mp_layers)
         ]
@@ -93,7 +107,7 @@ class mpnn(nn.Module):
 
         assert node_embeddings.shape[1] == self.embedding_dim, f'Incorrect node embedding size. Expected {self.embedding_dim}, got {node_embeddings.shape[1]}'
 
-        for mp_layer in self.mp_layer:
+        for mp_layer in self.mp_layers:
             node_embeddings = mp_layer(connection_matrix, node_embeddings)
 
         return node_embeddings

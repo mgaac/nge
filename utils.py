@@ -1,72 +1,20 @@
 import mlx.core as mx
 import mlx.nn as nn
-import mlx.utils as utils
-
-import mlx.optimizers as optim
 
 import numpy as np
 
-import wandb
-
-from model import nge, aggregation_fn
-from data import load_dataset
-from utils import print_execution_details
-
-MODEL_CONFIG = {
-    'embedding_dim': 128,
-    'skip_connections': True,
-    'aggregation_fn': aggregation_fn.MAX,
-    'num_mp_layers': 2
-}
-
-model = nge(**MODEL_CONFIG)
-
-dataset = load_dataset('data/train_dataset.npz')
-
-def bf_loss_fn(bf_output, bf_distance_targets, bf_predecessor_targets):
-
-    bf_distance_predictions, bf_predecessor_predictions = bf_output
-
-    bf_distance_loss = nn.losses.mse_loss(bf_distance_predictions, bf_distance_targets, reduction='mean')
-    bf_distance_loss = bf_distance_loss * 0.1  # Scale down distance loss
-
-    bf_predecessor_loss = nn.losses.cross_entropy(bf_predecessor_predictions, bf_predecessor_targets, reduction='mean')
-
-    return bf_distance_loss
-
-
-def bfs_loss_fn(bfs_output, bfs_state_targets):
-
-    bfs_state_predictions = bfs_output
-    bfs_state_loss = nn.losses.binary_cross_entropy(bfs_state_predictions, bfs_state_targets, reduction='mean', with_logits=True)
-
-    return bfs_state_loss
-
-
-def step_loss_fn(bfs_output, bf_output, termination_probs, target_bfs_state, target_distance_bf, target_predecessor_bf, termination_targets):
-
-    bf_loss_value = bf_loss_fn(bf_output, target_distance_bf, target_predecessor_bf)
-    bfs_loss_value = bfs_loss_fn(bfs_output, target_bfs_state)
-
-    bf_termination_loss = nn.losses.binary_cross_entropy(termination_probs['bf'], termination_targets['bf'], reduction='mean', with_logits=False)
-    bfs_termination_loss = nn.losses.binary_cross_entropy(termination_probs['bfs'], termination_targets['bfs'], reduction='mean', with_logits=False)
-
-    total_step_loss = bf_loss_value + bfs_loss_value + bf_termination_loss + bfs_termination_loss
-
-    return total_step_loss
-
-
-def graph_execution_loss_fn(model, graph_data):
+def print_execution_details(model, graph_data, embedding_dim):
     accumulated_loss = mx.array(0.0)
-
     num_nodes = graph_data['num_nodes']
-    previous_step_hidden_states = mx.zeros([num_nodes, MODEL_CONFIG['embedding_dim']])
+   
+    previous_step_hidden_states = mx.zeros([num_nodes, embedding_dim])
 
     num_bf_steps = len(graph_data['bf_distance_targets'])
     num_bfs_steps = len(graph_data['bfs_state_targets'])
 
     num_steps = max(num_bf_steps, num_bfs_steps)
     
+    steps_executed = 0
     
     for i in range(num_steps):
         # Check if samples exist
@@ -76,6 +24,8 @@ def graph_execution_loss_fn(model, graph_data):
         # If neither sample exists, skip this step
         if not (bf_sample_exists or bfs_sample_exists):
             continue
+
+        steps_executed += 1
 
         # Prepare data for current step
         if bfs_sample_exists:
@@ -136,46 +86,58 @@ def graph_execution_loss_fn(model, graph_data):
         previous_step_hidden_states = processed_embeddings
         accumulated_loss += total_step_loss
 
-    average_loss = accumulated_loss / (num_steps - 1)
+        print(f"\n=== Step {steps_executed} ===")
+        print(f"Total Loss: {total_step_loss.item():.6f}")
+        
+        # Loss breakdown
+        print("Loss Breakdown:")
+        print(f"  BF Distance:     {bf_distance_loss.item():.6f}")
+        print(f"  BF Predecessor:  {bf_predecessor_loss.item():.6f}")
+        print(f"  BFS State:       {bfs_state_loss.item():.6f}")
+        print(f"  BF Termination:  {bf_termination_loss.item():.6f}")
+        print(f"  BFS Termination: {bfs_termination_loss.item():.6f}")
+
+        # Model outputs and statistics
+        if bf_sample_exists:
+            bf_distance_logits = bf_output[0]
+            bf_predecessor_logits = bf_output[1]
+            
+            print("\nBF Distance:")
+            print(f"  Logits: norm={mx.linalg.norm(bf_distance_logits).item():.6f}, std={mx.std(bf_distance_logits).item():.6f}")
+            print(f"  Pred: {np.array(bf_distance_logits).round(4)}")
+            print(f"  Targ: {np.array(target_distance_bf).round(4)}")
+            
+            print("\nBF Predecessor:")
+            print(f"  Logits: norm={mx.linalg.norm(bf_predecessor_logits).item():.6f}, std={mx.std(bf_predecessor_logits).item():.6f}")
+            print(f"  Pred: {np.argmax(np.array(bf_predecessor_logits), axis=-1)}")
+            print(f"  Targ: {np.array(target_predecessor_bf)}")
+            
+            print("\nBF Termination:")
+            print(f"  Logits: norm={mx.linalg.norm(termination_probs['bf']).item():.6f}")
+            print(f"  Pred: {np.array(termination_probs['bf']).item():.4f}")
+            print(f"  Targ: {np.array(termination_targets['bf']).item():.4f}")
+            
+        if bfs_sample_exists:
+            print("\nBFS State:")
+            print(f"  Logits: norm={mx.linalg.norm(bfs_output).item():.6f}, std={mx.std(bfs_output).item():.6f}")
+            print(f"  Pred: {(np.array(bfs_output) > 0).astype(int)}")
+            print(f"  Targ: {np.array(target_bfs_state).astype(int)}")
+            
+            print("\nBFS Termination:")
+            print(f"  Logits: norm={mx.linalg.norm(termination_probs['bfs']).item():.6f}")
+            print(f"  Pred: {np.array(termination_probs['bfs']).item():.4f}")
+            print(f"  Targ: {np.array(termination_targets['bfs']).item():.4f}")
+            
+        print(f"\nHidden State: norm={mx.linalg.norm(processed_embeddings).item():.6f}, std={mx.std(processed_embeddings).item():.6f}")
+
+    # Calculate average loss correctly
+    if steps_executed > 0:
+        average_loss = accumulated_loss / steps_executed
+    else:
+        average_loss = mx.array(0.0)
+
+    print(f"\n=== Summary ===")
+    print(f"Steps executed: {steps_executed}")
+    print(f"Average loss: {average_loss.item():.6f}")
 
     return average_loss
-
-
-loss_and_grad_fn = nn.value_and_grad(model, graph_execution_loss_fn)
-
-mx.eval(model.parameters())
-
-# Initialize wandb
-wandb.init(project="nge-train", name="nge-run", config=MODEL_CONFIG)
-
-def train_model(model, dataset, optimizer, epochs):
-
-    for epoch in range(epochs):
-
-        accumulated_epoch_loss = mx.array(0.0)
-
-        for i, graph_data in enumerate(dataset):
-            
-            loss, grads = loss_and_grad_fn(model, graph_data)
-
-            optimizer.update(model, grads)
-
-            mx.eval(model.parameters(), optimizer.state)
-
-            accumulated_epoch_loss += loss
-
-        avg_epoch_loss = accumulated_epoch_loss / len(dataset)
-
-        print(f"Epoch {epoch}: loss = {avg_epoch_loss}")
-
-        # Log to wandb
-        wandb.log({"epoch": epoch, "loss": float(avg_epoch_loss)})
-
-        if (epoch) % 50 == 0:
-
-            print_execution_details(model, graph_data, MODEL_CONFIG['embedding_dim'])
-
-
-optimizer = optim.Adam(learning_rate=1e-5)
-    
-train_model(model, dataset, optimizer, epochs=200)
