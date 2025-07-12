@@ -140,4 +140,4 @@ def print_execution_details(model, graph_data, embedding_dim):
     print(f"Steps executed: {steps_executed}")
     print(f"Average loss: {average_loss.item():.6f}")
 
-    return average_loss
+    return average_loss, mx.linalg.norm(processed_embeddings)

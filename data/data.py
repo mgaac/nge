@@ -242,11 +242,16 @@ def load_dataset(filename):
     return dataset
 
 
+if __name__ == "__main__":
+    # Only generate and save datasets when this script is run directly
+    print("Generating datasets...")
+    
+    train_dataset = generated_dataset(700, 20, 0.2, 2)
+    val_dataset = generated_dataset(100, 20, 0.2, 2)
+    test_dataset = generated_dataset(100, 20, 0.2, 2)
 
-train_dataset = generated_dataset(700, 20, 0.2, 2)
-val_dataset = generated_dataset(100, 20, 0.2, 2)
-test_dataset = generated_dataset(100, 20, 0.2, 2)
-
-save_dataset(train_dataset, "train_dataset.npz")
-save_dataset(val_dataset, "val_dataset.npz")
-save_dataset(test_dataset, "test_dataset.npz")
+    save_dataset(train_dataset, "train_dataset.npz")
+    save_dataset(val_dataset, "val_dataset.npz")
+    save_dataset(test_dataset, "test_dataset.npz")
+    
+    print("Datasets saved successfully!")

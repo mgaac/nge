@@ -9,20 +9,28 @@ import numpy as np
 import wandb
 
 from model import nge, aggregation_fn
-from data import load_dataset
+from data.data import load_dataset
 from utils import print_execution_details
 
 MODEL_CONFIG = {
-    'embedding_dim': 128,
-    'skip_connections': True,
-    'aggregation_fn': aggregation_fn.MAX,
+    'embed_dim': 128,
+    'residual_connections': True,
+    'agg_fn': aggregation_fn.MAX,
     'num_mp_layers': 2
+}
+
+HYPERPARAMETERS = {
+    'epochs': 500,
+    'lr': 1e-5,
 }
 
 model = nge(**MODEL_CONFIG)
 
-dataset = load_dataset('data/train_dataset.npz')
+train_dataset = load_dataset('data/train_dataset.npz')
+val_dataset = load_dataset('data/val_dataset.npz')
+test_dataset = load_dataset('data/test_dataset.npz')
 
+@mx.compile
 def bf_loss_fn(bf_output, bf_distance_targets, bf_predecessor_targets):
 
     bf_distance_predictions, bf_predecessor_predictions = bf_output
@@ -34,7 +42,7 @@ def bf_loss_fn(bf_output, bf_distance_targets, bf_predecessor_targets):
 
     return bf_distance_loss
 
-
+@mx.compile
 def bfs_loss_fn(bfs_output, bfs_state_targets):
 
     bfs_state_predictions = bfs_output
@@ -42,7 +50,7 @@ def bfs_loss_fn(bfs_output, bfs_state_targets):
 
     return bfs_state_loss
 
-
+@mx.compile
 def step_loss_fn(bfs_output, bf_output, termination_probs, target_bfs_state, target_distance_bf, target_predecessor_bf, termination_targets):
 
     bf_loss_value = bf_loss_fn(bf_output, target_distance_bf, target_predecessor_bf)
@@ -60,7 +68,7 @@ def graph_execution_loss_fn(model, graph_data):
     accumulated_loss = mx.array(0.0)
 
     num_nodes = graph_data['num_nodes']
-    previous_step_hidden_states = mx.zeros([num_nodes, MODEL_CONFIG['embedding_dim']])
+    previous_step_hidden_states = mx.zeros([num_nodes, MODEL_CONFIG['embed_dim']])
 
     num_bf_steps = len(graph_data['bf_distance_targets'])
     num_bfs_steps = len(graph_data['bfs_state_targets'])
@@ -146,7 +154,21 @@ loss_and_grad_fn = nn.value_and_grad(model, graph_execution_loss_fn)
 mx.eval(model.parameters())
 
 # Initialize wandb
-wandb.init(project="nge-train", name="nge-run", config=MODEL_CONFIG)
+wandb.init(project="nge-train", config={**MODEL_CONFIG, **HYPERPARAMETERS})
+
+def evaluate_model(model, dataset):
+
+    accumulated_epoch_loss = mx.array(0.0)
+
+    for i, graph_data in enumerate(dataset):
+        
+        loss, _ = loss_and_grad_fn(model, graph_data)
+
+        accumulated_epoch_loss += loss
+
+    avg_epoch_loss = accumulated_epoch_loss / len(dataset)
+
+    return avg_epoch_loss
 
 def train_model(model, dataset, optimizer, epochs):
 
@@ -169,13 +191,38 @@ def train_model(model, dataset, optimizer, epochs):
         print(f"Epoch {epoch}: loss = {avg_epoch_loss}")
 
         # Log to wandb
-        wandb.log({"epoch": epoch, "loss": float(avg_epoch_loss)})
+        wandb.log({"loss": float(avg_epoch_loss), "lr": float(optimizer.learning_rate)})
+
+        if epoch % 10 == 0:
+            val_loss = evaluate_model(model, val_dataset)
+            wandb.log({"val_loss": float(val_loss)})
 
         if (epoch) % 50 == 0:
+            random_idx = mx.random.randint(0, len(train_dataset)).item()
+            _, norm  = print_execution_details(model, train_dataset[random_idx], MODEL_CONFIG['embed_dim'])
+            wandb.log({"norm": float(norm)})
 
-            print_execution_details(model, graph_data, MODEL_CONFIG['embedding_dim'])
 
+total_steps = HYPERPARAMETERS['epochs'] * len(train_dataset)
+# decay_steps = int(total_steps * HYPERPARAMETERS['decay_steps'])
+# warmup_steps = int(total_steps * HYPERPARAMETERS['warmup_steps'])
 
-optimizer = optim.Adam(learning_rate=1e-5)
-    
-train_model(model, dataset, optimizer, epochs=200)
+# lr_warmup = optim.linear_schedule(
+#     init=0.0,
+#     end=HYPERPARAMETERS['start_lr'],
+#     steps=warmup_steps
+# )
+
+lr_decay = optim.cosine_decay(
+    init=HYPERPARAMETERS['lr'],
+    decay_steps=total_steps,
+    end=0.0
+)
+
+# lr_scheduler = optim.join_schedules([lr_warmup, lr_decay], [warmup_steps])
+
+optimizer = optim.Adam(learning_rate=lr_decay, weight_decay=1e-5)
+
+train_model(model, train_dataset, optimizer, epochs=HYPERPARAMETERS['epochs']) 
+test_loss = evaluate_model(model, test_dataset)
+wandb.log({"test_loss": float(test_loss)})

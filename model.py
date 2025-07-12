@@ -10,23 +10,23 @@ class aggregation_fn(Enum):
     MAX = 5
 
 class mp_layer(nn.Module):
-    def __init__(self, embedding_dim: int, skip_connections: bool, aggregation_fn: Enum):
+    def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum):
         super().__init__()
 
         self.source_idx = 0
         self.target_idx = 1
 
-        self.embedding_dim = embedding_dim
+        self.embed_dim = embed_dim
 
-        self.skip_connections = skip_connections
-        self.aggregation_fn = aggregation_fn
+        self.residual_connections = residual_connections
+        self.agg_fn = agg_fn
 
-        self.source_message_fn = nn.Linear(embedding_dim, embedding_dim, bias=False)
-        self.target_message_fn = nn.Linear(embedding_dim, embedding_dim, bias=False)
+        self.source_message_fn = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.target_message_fn = nn.Linear(embed_dim, embed_dim, bias=False)
 
-        self.layer_norm = nn.LayerNorm(embedding_dim)
+        self.layer_norm = nn.LayerNorm(embed_dim)
 
-        self.update_fn = nn.Linear(embedding_dim, embedding_dim)
+        self.update_fn = nn.Linear(embed_dim, embed_dim)
 
     def __call__(self, connection_matrix, node_embeddings):
 
@@ -49,22 +49,21 @@ class mp_layer(nn.Module):
         message = message * edge_weights
 
         message = nn.relu(message)
-
-
-        if (self.aggregation_fn == aggregation_fn.SUM):
-            agg_message = mx.zeros([num_nodes, self.embedding_dim])
+    
+        if (self.agg_fn == aggregation_fn.SUM):
+            agg_message = mx.zeros([num_nodes, self.embed_dim])
             agg_message = agg_message.at[target_idx].add(message)
 
-        elif (self.aggregation_fn == aggregation_fn.AVG):
-            agg_message = mx.zeros([num_nodes, self.embedding_dim])
+        elif (self.agg_fn == aggregation_fn.AVG):
+            agg_message = mx.zeros([num_nodes, self.embed_dim])
             agg_message = agg_message.at[target_idx].add(message)
             denominator = mx.zeros([num_nodes, 1]).at[target_idx].add(1)
             # Fix: Use small positive epsilon instead of large negative number
             agg_message = agg_message / mx.maximum(denominator, 1e-6)
 
-        elif (self.aggregation_fn == aggregation_fn.MAX):
+        elif (self.agg_fn == aggregation_fn.MAX):
             # Use more reasonable initialization value and handle nodes with no incoming edges
-            agg_message = mx.full([num_nodes, self.embedding_dim], -1e3)
+            agg_message = mx.full([num_nodes, self.embed_dim], -1e3)
             agg_message = agg_message.at[target_idx].maximum(message)
             # For nodes with no incoming messages, reset to zero
             has_incoming = mx.zeros([num_nodes, 1]).at[target_idx].add(1) > 0
@@ -72,7 +71,7 @@ class mp_layer(nn.Module):
 
         elif (self.aggregation_fn == aggregation_fn.MIN):
             # Use more reasonable initialization value and handle nodes with no incoming edges  
-            agg_message = mx.full([num_nodes, self.embedding_dim], 1e3)
+            agg_message = mx.full([num_nodes, self.embed_dim], 1e3)
             agg_message = agg_message.at[target_idx].minimum(message)
             # For nodes with no incoming messages, reset to zero
             has_incoming = mx.zeros([num_nodes, 1]).at[target_idx].add(1) > 0
@@ -83,29 +82,29 @@ class mp_layer(nn.Module):
         new_node_embeddings = self.update_fn(agg_message)
         new_node_embeddings = nn.relu(new_node_embeddings)
 
-        if (self.skip_connections):
+        if (self.residual_connections):
             new_node_embeddings = new_node_embeddings + node_embeddings
 
         return new_node_embeddings
 
 class mpnn(nn.Module):
-    def __init__(self, embedding_dim: int, skip_connections: bool, aggregation_fn: Enum, num_mp_layers: int):
+    def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum, num_mp_layers: int):
         super(mpnn, self).__init__()
 
-        self.embedding_dim = embedding_dim
-        self.skip_connections = skip_connections
-        self.aggregation_function_fn = aggregation_fn
+        self.embed_dim = embed_dim
+        self.residual_connections = residual_connections
+        self.agg_fn = agg_fn
 
         # Fix: Use proper module list for parameter tracking
         self.mp_layers = [
-            mp_layer(embedding_dim, skip_connections, aggregation_fn)
+            mp_layer(embed_dim, residual_connections, agg_fn)
             for _ in range(num_mp_layers)
         ]
 
     def __call__(self, data):
         node_embeddings, connection_matrix = data
 
-        assert node_embeddings.shape[1] == self.embedding_dim, f'Incorrect node embedding size. Expected {self.embedding_dim}, got {node_embeddings.shape[1]}'
+        assert node_embeddings.shape[1] == self.embed_dim, f'Incorrect node embedding size. Expected {self.embed_dim}, got {node_embeddings.shape[1]}'
 
         for mp_layer in self.mp_layers:
             node_embeddings = mp_layer(connection_matrix, node_embeddings)
@@ -113,11 +112,11 @@ class mpnn(nn.Module):
         return node_embeddings
     
 class bfs_decoder(nn.Module):
-    def __init__(self, embedding_dim: int):
+    def __init__(self, embed_dim: int):
         super(bfs_decoder, self).__init__()
 
-        self.embedding_dim = embedding_dim
-        self.bfs_state_outputs = nn.Linear(embedding_dim, 1)
+        self.embed_dim = embed_dim
+        self.bfs_state_outputs = nn.Linear(embed_dim, 1)
 
     def __call__(self, data):
         node_embeddings, _ = data
@@ -129,20 +128,20 @@ class bfs_decoder(nn.Module):
         return bfs_state_predictions
 
 class bf_decoder(nn.Module):
-    def __init__(self, embedding_dim: int):
+    def __init__(self, embed_dim: int):
         super(bf_decoder, self).__init__()
 
         self.source_idx = 0
         self.target_idx = 1
 
-        self.embedding_dim = embedding_dim
+        self.embed_dim = embed_dim
         
         # Simplified Bellman-Ford distance head with proper initialization
         # Use a single linear layer with proper initialization and output constraint
-        self.bf_distance_head = nn.Linear(embedding_dim, 64)
+        self.bf_distance_head = nn.Linear(embed_dim, 64)
         self.bf_distance_output = nn.Linear(64, 1)
         
-        self.bf_predecessor_prob = nn.Linear(2 * embedding_dim, 1)
+        self.bf_predecessor_prob = nn.Linear(2 * embed_dim, 1)
 
     def __call__(self, data):
         node_embeddings, connection_matrix = data
@@ -180,24 +179,24 @@ class bf_decoder(nn.Module):
         return bf_distance_predictions, bf_predecessor_predictions
     
 class nge(nn.Module):
-    def __init__(self, embedding_dim: int, skip_connections: bool, aggregation_fn: Enum, num_mp_layers: int):
+    def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum, num_mp_layers: int):
         super(nge, self).__init__()
 
 
         # Separate encoders for each algorithm
         # 3 is the number of additional features (bfs_state, bf_distance, bf_predecessor)
-        self.encoder = nn.Linear(embedding_dim + 3, embedding_dim)
+        self.encoder = nn.Linear(embed_dim + 3, embed_dim)
 
         # Separate decoders for each algorithm
-        self.bfs_decoder = bfs_decoder(embedding_dim)
-        self.bf_decoder = bf_decoder(embedding_dim)
+        self.bfs_decoder = bfs_decoder(embed_dim)
+        self.bf_decoder = bf_decoder(embed_dim)
 
         # Separate termination heads for each algorithm 
-        self.bfs_termination = nn.Linear(embedding_dim, 1, bias=True)
-        self.bf_termination = nn.Linear(embedding_dim, 1, bias=True)
+        self.bfs_termination = nn.Linear(embed_dim, 1, bias=True)
+        self.bf_termination = nn.Linear(embed_dim, 1, bias=True)
     
         # Shared processor
-        self.processor = mpnn(embedding_dim, skip_connections, aggregation_fn, num_mp_layers)
+        self.processor = mpnn(embed_dim, residual_connections, agg_fn, num_mp_layers)
 
     def __call__(self, data):
         node_embeddings, connection_matrix = data
