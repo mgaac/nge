@@ -10,7 +10,7 @@ import wandb
 
 from model import nge, aggregation_fn
 from data.data import load_dataset
-from utils import print_execution_details
+from utils import print_execution_details, calculate_losses_and_accuracies
 
 MODEL_CONFIG = {
     'embed_dim': 128,
@@ -20,8 +20,11 @@ MODEL_CONFIG = {
 }
 
 HYPERPARAMETERS = {
-    'epochs': 500,
-    'lr': 1e-5,
+    'epochs': 300,
+    'start_lr': 5e-5,
+    'end_lr': 1e-5,
+    'decay_ratio': .8,
+    'max_grad_norm': 1.0
 }
 
 model = nge(**MODEL_CONFIG)
@@ -146,10 +149,16 @@ def graph_execution_loss_fn(model, graph_data):
 
     average_loss = accumulated_loss / (num_steps - 1)
 
-    return average_loss
+    return (bf_distance_loss, bf_predecessor_loss, bfs_state_loss, bf_termination_loss, bfs_termination_loss), average_loss
 
 
-loss_and_grad_fn = nn.value_and_grad(model, graph_execution_loss_fn)
+def graph_execution_loss_scalar(model, graph_data):
+    """Version of loss function that only returns scalar loss for gradient computation"""
+    _, loss = graph_execution_loss_fn(model, graph_data)
+    return loss
+
+
+loss_and_grad_fn = nn.value_and_grad(model, graph_execution_loss_scalar)
 
 mx.eval(model.parameters())
 
@@ -159,52 +168,96 @@ wandb.init(project="nge-train", config={**MODEL_CONFIG, **HYPERPARAMETERS})
 def evaluate_model(model, dataset):
 
     accumulated_epoch_loss = mx.array(0.0)
+    accumulated_aux_losses = mx.zeros([5])
+    accumulated_accuracies = [0.0, 0.0, 0.0, 0.0, 0.0]
 
     for i, graph_data in enumerate(dataset):
         
-        loss, _ = loss_and_grad_fn(model, graph_data)
+        aux_losses, loss, accuracies = calculate_losses_and_accuracies(model, graph_data, MODEL_CONFIG['embed_dim'])
 
         accumulated_epoch_loss += loss
+        accumulated_aux_losses += aux_losses
+        for j in range(5):
+            accumulated_accuracies[j] += accuracies[j]
 
     avg_epoch_loss = accumulated_epoch_loss / len(dataset)
+    avg_aux_losses = accumulated_aux_losses / len(dataset)
+    avg_accuracies = [float(acc / len(dataset)) for acc in accumulated_accuracies]
 
-    return avg_epoch_loss
+    return avg_aux_losses, avg_epoch_loss, avg_accuracies
 
 def train_model(model, dataset, optimizer, epochs):
 
     for epoch in range(epochs):
 
         accumulated_epoch_loss = mx.array(0.0)
+        accumulated_aux_losses = mx.zeros([5])
+        accumulated_accuracies = [0.0, 0.0, 0.0, 0.0, 0.0]
 
         for i, graph_data in enumerate(dataset):
             
             loss, grads = loss_and_grad_fn(model, graph_data)
 
-            optimizer.update(model, grads)
+            clipped_grads, norm = optim.clip_grad_norm(grads, max_norm=HYPERPARAMETERS['max_grad_norm'])
+
+            optimizer.update(model, clipped_grads)
 
             mx.eval(model.parameters(), optimizer.state)
 
             accumulated_epoch_loss += loss
+            
+            # Get auxiliary losses and accuracies for this sample 
+            aux_losses, _, train_accuracies = calculate_losses_and_accuracies(model, graph_data, MODEL_CONFIG['embed_dim'])
+            accumulated_aux_losses += aux_losses
+            accumulated_accuracies = list(mx.array(accumulated_accuracies) + mx.array(train_accuracies))
 
         avg_epoch_loss = accumulated_epoch_loss / len(dataset)
+        avg_aux_losses = accumulated_aux_losses / len(dataset)
+        avg_train_accuracies = [float(acc / len(dataset)) for acc in accumulated_accuracies]
 
         print(f"Epoch {epoch}: loss = {avg_epoch_loss}")
 
-        # Log to wandb
-        wandb.log({"loss": float(avg_epoch_loss), "lr": float(optimizer.learning_rate)})
+        # Log to wandb with organized structure
+        wandb.log({
+            # Main metrics (at root level for easy access)
+            "loss": float(avg_epoch_loss),
+            "lr": float(optimizer.learning_rate),
+            "grad_norm": float(norm),
+            
+            # Loss breakdown
+            "losses/bf_distance": float(avg_aux_losses[0]),
+            "losses/bf_predecessor": float(avg_aux_losses[1]),
+            "losses/bfs_state": float(avg_aux_losses[2]),
+            "losses/bf_termination": float(avg_aux_losses[3]),
+            "losses/bfs_termination": float(avg_aux_losses[4]),
+            
+            # Training accuracies
+            "train_acc/bf_distance": avg_train_accuracies[0],
+            "train_acc/bf_predecessor": avg_train_accuracies[1],
+            "train_acc/bfs_state": avg_train_accuracies[2],
+            "train_acc/bf_termination": avg_train_accuracies[3],
+            "train_acc/bfs_termination": avg_train_accuracies[4]
+        })
 
-        if epoch % 10 == 0:
-            val_loss = evaluate_model(model, val_dataset)
-            wandb.log({"val_loss": float(val_loss)})
+        if epoch % 5 == 0:
+            val_aux_losses, val_loss, val_accuracies = evaluate_model(model, val_dataset)
+            wandb.log({
+                "val_loss": float(val_loss),
+                "val_acc/bf_distance": float(val_accuracies[0]),
+                "val_acc/bf_predecessor": float(val_accuracies[1]),
+                "val_acc/bfs_state": float(val_accuracies[2]),
+                "val_acc/bf_termination": float(val_accuracies[3]),
+                "val_acc/bfs_termination": float(val_accuracies[4])
+            })
 
-        if (epoch) % 50 == 0:
+        if (epoch) % 10 == 0:
             random_idx = mx.random.randint(0, len(train_dataset)).item()
             _, norm  = print_execution_details(model, train_dataset[random_idx], MODEL_CONFIG['embed_dim'])
-            wandb.log({"norm": float(norm)})
+            wandb.log({"debug/hidden_state_norm": float(norm)})
 
 
 total_steps = HYPERPARAMETERS['epochs'] * len(train_dataset)
-# decay_steps = int(total_steps * HYPERPARAMETERS['decay_steps'])
+decay_steps = int(total_steps * HYPERPARAMETERS['decay_ratio'])
 # warmup_steps = int(total_steps * HYPERPARAMETERS['warmup_steps'])
 
 # lr_warmup = optim.linear_schedule(
@@ -214,15 +267,22 @@ total_steps = HYPERPARAMETERS['epochs'] * len(train_dataset)
 # )
 
 lr_decay = optim.cosine_decay(
-    init=HYPERPARAMETERS['lr'],
-    decay_steps=total_steps,
-    end=0.0
+    init=HYPERPARAMETERS['start_lr'],
+    decay_steps=decay_steps,
+    end=HYPERPARAMETERS['end_lr']
 )
 
 # lr_scheduler = optim.join_schedules([lr_warmup, lr_decay], [warmup_steps])
 
-optimizer = optim.Adam(learning_rate=lr_decay, weight_decay=1e-5)
+optimizer = optim.Adam(learning_rate=lr_decay)
 
 train_model(model, train_dataset, optimizer, epochs=HYPERPARAMETERS['epochs']) 
-test_loss = evaluate_model(model, test_dataset)
-wandb.log({"test_loss": float(test_loss)})
+test_aux_losses, test_loss, test_accuracies = evaluate_model(model, test_dataset)
+wandb.log({
+    "test_loss": float(test_loss),
+    "test_acc/bf_distance": float(test_accuracies[0]),
+    "test_acc/bf_predecessor": float(test_accuracies[1]), 
+    "test_acc/bfs_state": float(test_accuracies[2]),
+    "test_acc/bf_termination": float(test_accuracies[3]),
+    "test_acc/bfs_termination": float(test_accuracies[4])
+})
