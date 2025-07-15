@@ -12,19 +12,22 @@ from model import nge, aggregation_fn
 from data.data import load_dataset
 from utils import print_execution_details, calculate_losses_and_accuracies
 
+mx.random.seed(42)
+
 MODEL_CONFIG = {
-    'embed_dim': 128,
+    'embed_dim': 32,
     'residual_connections': True,
     'agg_fn': aggregation_fn.MAX,
     'num_mp_layers': 2
 }
 
 HYPERPARAMETERS = {
-    'epochs': 300,
+    'epochs': 500,
     'start_lr': 5e-5,
-    'end_lr': 1e-5,
-    'decay_ratio': .8,
-    'max_grad_norm': 1.0
+    'end_lr': 5e-6,
+    'decay_ratio': .2,
+    'max_grad_norm': 10000.0,
+    'weight_decay': 1e-3,
 }
 
 model = nge(**MODEL_CONFIG)
@@ -274,7 +277,7 @@ lr_decay = optim.cosine_decay(
 
 # lr_scheduler = optim.join_schedules([lr_warmup, lr_decay], [warmup_steps])
 
-optimizer = optim.Adam(learning_rate=lr_decay)
+optimizer = optim.AdamW(learning_rate=lr_decay, weight_decay=HYPERPARAMETERS['weight_decay'])
 
 train_model(model, train_dataset, optimizer, epochs=HYPERPARAMETERS['epochs']) 
 test_aux_losses, test_loss, test_accuracies = evaluate_model(model, test_dataset)
