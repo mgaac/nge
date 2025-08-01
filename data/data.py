@@ -26,9 +26,36 @@ def barabasi_albert_edge_matrix(num_nodes=20, m=2):
     edge_matrix = mx.array(edges).T  # shape: (2, num_edges)
     return edge_matrix
 
+def make_bidirectional_edges(edge_matrix):
+    """
+    Convert directed edges to bidirectional by adding reverse edges.
+    For each edge (u,v,w), also adds (v,u,w).
+    """
+    if edge_matrix.size == 0:
+        return edge_matrix
+    
+    num_edges = edge_matrix.shape[1]
+    bidirectional_edges = []
+    
+    for i in range(num_edges):
+        u, v = edge_matrix[0, i], edge_matrix[1, i]
+        if edge_matrix.shape[0] > 2:  # Has weights
+            w = edge_matrix[2, i]
+            bidirectional_edges.append([u, v, w])
+            bidirectional_edges.append([v, u, w])  # Reverse edge with same weight
+        else:
+            bidirectional_edges.append([u, v])
+            bidirectional_edges.append([v, u])  # Reverse edge
+    
+    return mx.array(bidirectional_edges).T
+
 def append_uniform_edge_weights(edge_matrix, low=0.2, high=1.0):
     if edge_matrix.size == 0:
         return edge_matrix
+    
+    # First make edges bidirectional
+    edge_matrix = make_bidirectional_edges(edge_matrix)
+    
     num_edges = edge_matrix.shape[1]
     weights = mx.array(np.random.uniform(low, high, size=num_edges))
     # Stack as a new row: shape (3, num_edges)
@@ -246,7 +273,7 @@ if __name__ == "__main__":
     # Only generate and save datasets when this script is run directly
     print("Generating datasets...")
     
-    train_dataset = generated_dataset(700, 20, 0.2, 2)
+    train_dataset = generated_dataset(1000, 20, 0.2, 2)
     val_dataset = generated_dataset(100, 20, 0.2, 2)
     test_dataset = generated_dataset(100, 20, 0.2, 2)
 

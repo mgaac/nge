@@ -10,7 +10,7 @@ class aggregation_fn(Enum):
     MAX = 5
 
 class mp_layer(nn.Module):
-    def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum):
+    def __init__(self, embed_dim: int, residual_connections: bool, dropout: float, agg_fn: Enum):
         super().__init__()
 
         self.source_idx = 0
@@ -27,6 +27,9 @@ class mp_layer(nn.Module):
         self.layer_norm = nn.LayerNorm(embed_dim)
 
         self.update_fn = nn.Linear(embed_dim, embed_dim)
+        
+        # Use MLX's built-in Dropout layer
+        self.dropout = nn.Dropout(p=dropout)
 
     def __call__(self, connection_matrix, node_embeddings):
 
@@ -49,6 +52,9 @@ class mp_layer(nn.Module):
         message = message * edge_weights
 
         message = nn.relu(message)
+        
+        # Apply dropout to the messages (features), not the graph structure
+        message = self.dropout(message)
     
         if (self.agg_fn == aggregation_fn.SUM):
             agg_message = mx.zeros([num_nodes, self.embed_dim])
@@ -69,7 +75,7 @@ class mp_layer(nn.Module):
             has_incoming = mx.zeros([num_nodes, 1]).at[target_idx].add(1) > 0
             agg_message = mx.where(has_incoming, agg_message, mx.zeros_like(agg_message))
 
-        elif (self.aggregation_fn == aggregation_fn.MIN):
+        elif (self.agg_fn == aggregation_fn.MIN):
             # Use more reasonable initialization value and handle nodes with no incoming edges  
             agg_message = mx.full([num_nodes, self.embed_dim], 1e3)
             agg_message = agg_message.at[target_idx].minimum(message)
@@ -88,7 +94,7 @@ class mp_layer(nn.Module):
         return new_node_embeddings
 
 class mpnn(nn.Module):
-    def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum, num_mp_layers: int):
+    def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum, num_mp_layers: int, dropout: float = 0.0):
         super(mpnn, self).__init__()
 
         self.embed_dim = embed_dim
@@ -97,7 +103,7 @@ class mpnn(nn.Module):
 
         # Fix: Use proper module list for parameter tracking
         self.mp_layers = [
-            mp_layer(embed_dim, residual_connections, agg_fn)
+            mp_layer(embed_dim, residual_connections, dropout, agg_fn)
             for _ in range(num_mp_layers)
         ]
 
@@ -112,23 +118,26 @@ class mpnn(nn.Module):
         return node_embeddings
     
 class bfs_decoder(nn.Module):
-    def __init__(self, embed_dim: int):
+    def __init__(self, embed_dim: int, expansion: float = 4.0):
         super(bfs_decoder, self).__init__()
 
         self.embed_dim = embed_dim
-        self.bfs_state_outputs = nn.Linear(embed_dim, 1)
+        hidden_dim = int(embed_dim * expansion)
+        self.bfs_state_outputs = [nn.Linear(embed_dim, hidden_dim), nn.Linear(hidden_dim, 1)]
 
     def __call__(self, data):
         node_embeddings, _ = data
 
         # BFS state prediction
-        bfs_state_predictions = self.bfs_state_outputs(node_embeddings)
+        bfs_state_predictions = nn.relu(self.bfs_state_outputs[0](node_embeddings))
+        bfs_state_predictions = self.bfs_state_outputs[1](bfs_state_predictions)
+
         bfs_state_predictions = mx.sigmoid(bfs_state_predictions.squeeze())
 
         return bfs_state_predictions
 
 class bf_decoder(nn.Module):
-    def __init__(self, embed_dim: int):
+    def __init__(self, embed_dim: int, expansion: float = 4.0):
         super(bf_decoder, self).__init__()
 
         self.source_idx = 0
@@ -138,10 +147,13 @@ class bf_decoder(nn.Module):
         
         # Simplified Bellman-Ford distance head with proper initialization
         # Use a single linear layer with proper initialization and output constraint
-        self.bf_distance_head = nn.Linear(embed_dim, 64)
-        self.bf_distance_output = nn.Linear(64, 1)
+        hidden_dim = int(embed_dim * expansion)
+        self.bf_distance_outputs = [nn.Linear(embed_dim, hidden_dim), nn.Linear(hidden_dim, 1)]
         
-        self.bf_predecessor_prob = nn.Linear(2 * embed_dim, 1)
+        # Improved predecessor prediction - use edge-based approach
+        edge_hidden_dim = int(embed_dim * expansion)
+        self.bf_predecessor_head = nn.Linear(2 * embed_dim, edge_hidden_dim)
+        self.bf_predecessor_output = nn.Linear(edge_hidden_dim, 1)
 
     def __call__(self, data):
         node_embeddings, connection_matrix = data
@@ -152,8 +164,8 @@ class bf_decoder(nn.Module):
         target_idx = connection_matrix[self.target_idx].astype(mx.int32)
 
         # Simplified distance prediction with stability improvements
-        distance_features = nn.relu(self.bf_distance_head(node_embeddings))
-        bf_distance_predictions = self.bf_distance_output(distance_features)
+        bf_distance_predictions = nn.relu(self.bf_distance_outputs[0](node_embeddings))
+        bf_distance_predictions = self.bf_distance_outputs[1](bf_distance_predictions)
         
         # Apply ReLU to ensure non-negative distances (shortest paths can't be negative)
         # Add small epsilon for numerical stability
@@ -163,23 +175,26 @@ class bf_decoder(nn.Module):
         # Bellman-Ford predecessor predictions with efficient neighborhood-aware selection
         source_embeddings = mx.take(node_embeddings, source_idx, axis=0)
         target_embeddings = mx.take(node_embeddings, target_idx, axis=0)
-        concatenated_embeddings = mx.concat([source_embeddings, target_embeddings], axis=1)
-        edge_scores = self.bf_predecessor_prob(concatenated_embeddings)
-        edge_scores = edge_scores.squeeze()
-
-        # Efficient predecessor logits matrix with proper neighborhood-aware selection
-        # Initialize with small negative values for numerical stability
-        bf_predecessor_predictions = mx.full([num_nodes, num_nodes], -1)
         
-        # Use scatter operation to efficiently populate valid edge scores
-        # This allows each target node to select among its incoming neighbors
-        bf_predecessor_predictions = bf_predecessor_predictions.at[target_idx, source_idx].add(edge_scores + 1)
-        bf_predecessor_predictions = mx.softmax(bf_predecessor_predictions, axis=1)
+        # Process edge features
+        concatenated_embeddings = mx.concat([source_embeddings, target_embeddings], axis=1)
+        edge_features = nn.relu(self.bf_predecessor_head(concatenated_embeddings))
+        edge_scores = self.bf_predecessor_output(edge_features).squeeze()
+
+        # Create adjacency-aware predecessor predictions
+        # Initialize with very negative values to ensure invalid connections are never selected
+        bf_predecessor_predictions = mx.full([num_nodes, num_nodes], -1e6)
+        
+        # Only populate scores for actual edges in the graph using in-place assignment
+        bf_predecessor_predictions[target_idx, source_idx] = edge_scores
+        
+        # Apply softmax per target node (each row represents a target node's choices)
+        bf_predecessor_predictions = nn.softmax(bf_predecessor_predictions, axis=1)
         
         return bf_distance_predictions, bf_predecessor_predictions
     
 class nge(nn.Module):
-    def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum, num_mp_layers: int):
+    def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum, num_mp_layers: int, dropout: float = 0.0, expansion: float = 4.0):
         super(nge, self).__init__()
 
 
@@ -188,15 +203,15 @@ class nge(nn.Module):
         self.encoder = nn.Linear(embed_dim + 3, embed_dim)
 
         # Separate decoders for each algorithm
-        self.bfs_decoder = bfs_decoder(embed_dim)
-        self.bf_decoder = bf_decoder(embed_dim)
+        self.bfs_decoder = bfs_decoder(embed_dim, expansion)
+        self.bf_decoder = bf_decoder(embed_dim, expansion)
 
         # Separate termination heads for each algorithm 
         self.bfs_termination = nn.Linear(embed_dim, 1, bias=True)
         self.bf_termination = nn.Linear(embed_dim, 1, bias=True)
     
         # Shared processor
-        self.processor = mpnn(embed_dim, residual_connections, agg_fn, num_mp_layers)
+        self.processor = mpnn(embed_dim, residual_connections, agg_fn, num_mp_layers, dropout)
 
     def __call__(self, data):
         node_embeddings, connection_matrix = data

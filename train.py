@@ -15,22 +15,26 @@ from utils import print_execution_details, calculate_accuracies, calculate_losse
 mx.random.seed(42)
 
 MODEL_CONFIG = {
-    'embed_dim': 128,
+    'embed_dim': 32,
     'residual_connections': True,
     'agg_fn': aggregation_fn.MAX,
-    'num_mp_layers': 2
+    'num_mp_layers': 2,
+    'dropout': 0.05,
+    'expansion': 2.0  # Expansion factor for decoder hidden layers
 }
 
 HYPERPARAMETERS = {
-    'epochs': 1000,
-    'start_lr': 5e-5,
-    'end_lr': 5e-6,
-    'decay_ratio': .1,
-    'weight_decay': 1e-3,
-    'max_grad_norm': 10000.0
+    'epochs': 2000,
+    'start_lr':1e-3,  # Increased from 5e-5 for faster initial learning
+    'end_lr': 5e-6,    # Kept the same for fine-tuning
+    'decay_ratio': .3,  # Increased from .2 for longer high learning rate period
+    'max_grad_norm': 1.0  # Reduced from 2.0 for better stability
 }
 
 model = nge(**MODEL_CONFIG)
+
+# Set model to training mode initially
+model.train()
 
 train_dataset = load_dataset('data/train_dataset.npz')
 val_dataset = load_dataset('data/val_dataset.npz')
@@ -134,7 +138,9 @@ mx.eval(model.parameters())
 wandb.init(project="nge-train", config={**MODEL_CONFIG, **HYPERPARAMETERS})
 
 def evaluate_model(model, dataset):
-
+    # Set model to evaluation mode (disables dropout)
+    model.eval()
+    
     accumulated_epoch_loss = mx.array(0.0)
     accumulated_aux_losses = mx.zeros([5])
     accumulated_accuracies = mx.zeros([5])
@@ -150,10 +156,15 @@ def evaluate_model(model, dataset):
     avg_epoch_loss = accumulated_epoch_loss / len(dataset)
     avg_aux_losses = accumulated_aux_losses / len(dataset)
     avg_accuracies = accumulated_accuracies / len(dataset)
+    
+    # Set model back to training mode
+    model.train()
 
     return avg_aux_losses, avg_epoch_loss, avg_accuracies
 
 def train_model(model, dataset, optimizer, epochs):
+    # Set model to training mode (enables dropout)
+    model.train()
 
     for epoch in range(epochs):
 
@@ -164,7 +175,7 @@ def train_model(model, dataset, optimizer, epochs):
             
             (loss, aux_losses), grads = loss_and_grad_fn(model, graph_data)
 
-            _, norm = optim.clip_grad_norm(grads, max_norm=HYPERPARAMETERS['max_grad_norm'])
+            grads, norm = optim.clip_grad_norm(grads, max_norm=HYPERPARAMETERS['max_grad_norm'])
 
             optimizer.update(model, grads)
 
@@ -234,7 +245,8 @@ lr_decay = optim.cosine_decay(
 
 # lr_scheduler = optim.join_schedules([lr_warmup, lr_decay], [warmup_steps])
 
-optimizer = optim.AdamW(learning_rate=lr_decay, weight_decay=HYPERPARAMETERS['weight_decay'])
+# Fix: Use the learning rate schedule instead of fixed rate
+optimizer = optim.Adam(learning_rate=lr_decay)
 
 train_model(model, train_dataset, optimizer, epochs=HYPERPARAMETERS['epochs']) 
 test_aux_losses, test_loss, test_accuracies = evaluate_model(model, test_dataset)
