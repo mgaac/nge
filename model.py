@@ -118,26 +118,23 @@ class mpnn(nn.Module):
         return node_embeddings
     
 class bfs_decoder(nn.Module):
-    def __init__(self, embed_dim: int, expansion: float = 4.0):
+    def __init__(self, embed_dim: int):
         super(bfs_decoder, self).__init__()
 
         self.embed_dim = embed_dim
-        hidden_dim = int(embed_dim * expansion)
-        self.bfs_state_outputs = [nn.Linear(embed_dim, hidden_dim), nn.Linear(hidden_dim, 1)]
+        self.bfs_state_outputs = nn.Linear(embed_dim, 1, bias=False)
 
     def __call__(self, data):
         node_embeddings, _ = data
 
         # BFS state prediction
-        bfs_state_predictions = nn.relu(self.bfs_state_outputs[0](node_embeddings))
-        bfs_state_predictions = self.bfs_state_outputs[1](bfs_state_predictions)
-
+        bfs_state_predictions = self.bfs_state_outputs(node_embeddings)
         bfs_state_predictions = mx.sigmoid(bfs_state_predictions.squeeze())
 
         return bfs_state_predictions
 
 class bf_decoder(nn.Module):
-    def __init__(self, embed_dim: int, expansion: float = 4.0):
+    def __init__(self, embed_dim: int):
         super(bf_decoder, self).__init__()
 
         self.source_idx = 0
@@ -147,13 +144,9 @@ class bf_decoder(nn.Module):
         
         # Simplified Bellman-Ford distance head with proper initialization
         # Use a single linear layer with proper initialization and output constraint
-        hidden_dim = int(embed_dim * expansion)
-        self.bf_distance_outputs = [nn.Linear(embed_dim, hidden_dim), nn.Linear(hidden_dim, 1)]
+        self.bf_distance_outputs = nn.Linear(embed_dim, 1, bias=False)
         
-        # Improved predecessor prediction - use edge-based approach
-        edge_hidden_dim = int(embed_dim * expansion)
-        self.bf_predecessor_head = nn.Linear(2 * embed_dim, edge_hidden_dim)
-        self.bf_predecessor_output = nn.Linear(edge_hidden_dim, 1)
+        self.bf_predecessor_head = nn.Linear(2 * embed_dim, 1)
 
     def __call__(self, data):
         node_embeddings, connection_matrix = data
@@ -164,8 +157,7 @@ class bf_decoder(nn.Module):
         target_idx = connection_matrix[self.target_idx].astype(mx.int32)
 
         # Simplified distance prediction with stability improvements
-        bf_distance_predictions = nn.relu(self.bf_distance_outputs[0](node_embeddings))
-        bf_distance_predictions = self.bf_distance_outputs[1](bf_distance_predictions)
+        bf_distance_predictions = self.bf_distance_outputs(node_embeddings)
         
         # Apply ReLU to ensure non-negative distances (shortest paths can't be negative)
         # Add small epsilon for numerical stability
@@ -179,7 +171,7 @@ class bf_decoder(nn.Module):
         # Process edge features
         concatenated_embeddings = mx.concat([source_embeddings, target_embeddings], axis=1)
         edge_features = nn.relu(self.bf_predecessor_head(concatenated_embeddings))
-        edge_scores = self.bf_predecessor_output(edge_features).squeeze()
+        edge_scores = edge_features.squeeze()
 
         # Create adjacency-aware predecessor predictions
         # Initialize with very negative values to ensure invalid connections are never selected
@@ -194,7 +186,7 @@ class bf_decoder(nn.Module):
         return bf_distance_predictions, bf_predecessor_predictions
     
 class nge(nn.Module):
-    def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum, num_mp_layers: int, dropout: float = 0.0, expansion: float = 4.0):
+    def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum, num_mp_layers: int, dropout: float = 0.0):
         super(nge, self).__init__()
 
 
@@ -203,8 +195,8 @@ class nge(nn.Module):
         self.encoder = nn.Linear(embed_dim + 3, embed_dim)
 
         # Separate decoders for each algorithm
-        self.bfs_decoder = bfs_decoder(embed_dim, expansion)
-        self.bf_decoder = bf_decoder(embed_dim, expansion)
+        self.bfs_decoder = bfs_decoder(embed_dim)
+        self.bf_decoder = bf_decoder(embed_dim)
 
         # Separate termination heads for each algorithm 
         self.bfs_termination = nn.Linear(embed_dim, 1, bias=True)

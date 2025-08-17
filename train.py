@@ -14,39 +14,20 @@ from utils import print_execution_details, calculate_accuracies, calculate_losse
 
 mx.random.seed(42)
 
-def update_dwa_weights(current_losses, prev_losses=None, temperature=2.0):
-    """Update task weights based on relative learning rates using DWA"""
-    
-    if prev_losses is None:
-        # First epoch - use equal weights
-        return mx.ones([5]), current_losses
-        
-    # Calculate relative learning rates
-    # If loss decreased, rate is positive; if increased, rate is negative
-    rates = (prev_losses - current_losses) / (prev_losses + 1e-8)
-    
-    # Apply softmax with temperature to get weights
-    # Higher temperature = more uniform weights, lower = more focused
-    weights = mx.softmax(rates / temperature)
-    
-    return weights, current_losses
-
 MODEL_CONFIG = {
     'embed_dim': 32,
     'residual_connections': True,
     'agg_fn': aggregation_fn.MAX,
     'num_mp_layers': 2,
     'dropout': 0.05,
-    'expansion': 1.0  # Expansion factor for decoder hidden layers
 }
 
 HYPERPARAMETERS = {
     'epochs': 2000,
-    'start_lr':1e-3,  # Increased from 5e-5 for faster initial learning
-    'end_lr': 5e-6,    # Kept the same for fine-tuning
-    'decay_ratio': .2,  # Increased from .2 for longer high learning rate period
-    'max_grad_norm': 1.0,  # Reduced from 2.0 for better stability
-    'dwa_temperature': .05  # Temperature parameter for DWA
+    'start_lr':1e-3,
+    'end_lr': 5e-6,
+    'decay_ratio': .2,
+    'max_grad_norm': 1.0,
 }
 
 model = nge(**MODEL_CONFIG)
@@ -59,8 +40,7 @@ val_dataset = load_dataset('data/val_dataset.npz')
 test_dataset = load_dataset('data/test_dataset.npz')
 
 
-
-def graph_execution_loss_fn(model, graph_data, loss_weights=None):
+def graph_execution_loss_fn(model, graph_data):
     accumulated_loss = mx.array(0.0)
     accumulated_aux_losses = mx.zeros([5])
 
@@ -71,10 +51,6 @@ def graph_execution_loss_fn(model, graph_data, loss_weights=None):
     num_bfs_steps = len(graph_data['bfs_state_targets'])
 
     num_steps = max(num_bf_steps, num_bfs_steps)
-    
-    # Default weights if none provided
-    if loss_weights is None:
-        loss_weights = mx.ones([5])
     
     for i in range(num_steps):
         # Check if samples exist
@@ -138,26 +114,21 @@ def graph_execution_loss_fn(model, graph_data, loss_weights=None):
             bfs_state_loss = mx.array(0.0)
             bfs_termination_loss = mx.array(0.0)
 
-        # Apply dynamic weights to losses
-        weighted_losses = mx.array([bf_distance_loss, bf_predecessor_loss, bfs_state_loss, bf_termination_loss, bfs_termination_loss]) * loss_weights
-        total_step_loss = mx.sum(weighted_losses)
+        raw_losses = mx.array([bf_distance_loss, bf_predecessor_loss, bfs_state_loss, bf_termination_loss, bfs_termination_loss])
+        total_step_loss = mx.sum(raw_losses)
 
         # Update for next step
         previous_step_hidden_states = processed_embeddings
         accumulated_loss += total_step_loss
-        accumulated_aux_losses += mx.array([bf_distance_loss, bf_predecessor_loss, bfs_state_loss, bf_termination_loss, bfs_termination_loss])
+        accumulated_aux_losses += raw_losses
 
     average_loss = accumulated_loss / (num_steps - 1)
     avg_aux_losses = accumulated_aux_losses / (num_steps - 1)
 
     return average_loss, avg_aux_losses
 
-loss_and_grad_fn = nn.value_and_grad(model, graph_execution_loss_fn)
-
-mx.eval(model.parameters())
-
 # Initialize wandb
-wandb.init(project="nge-train", config={**MODEL_CONFIG, **HYPERPARAMETERS})
+wandb.init(project="nge-vanilla", config={**MODEL_CONFIG, **HYPERPARAMETERS})
 
 def evaluate_model(model, dataset):
     # Set model to evaluation mode (disables dropout)
@@ -188,21 +159,16 @@ def train_model(model, dataset, optimizer, epochs):
     # Set model to training mode (enables dropout)
     model.train()
     
-    # Initialize DWA state
-    dwa_prev_losses = None
-    dwa_weights = mx.ones([5])
-    dwa_temperature = HYPERPARAMETERS['dwa_temperature']
-
     for epoch in range(epochs):
         
-        # Create loss function with current DWA weights
+        loss_and_grad_fn = nn.value_and_grad(model, graph_execution_loss_fn)
 
         accumulated_epoch_loss = mx.array(0.0)
         accumulated_aux_losses = mx.zeros([5])
 
         for i, graph_data in enumerate(dataset):
             
-            (loss, aux_losses), grads = loss_and_grad_fn(model, graph_data, dwa_weights)
+            (loss, aux_losses), grads = loss_and_grad_fn(model, graph_data)
 
             grads, norm = optim.clip_grad_norm(grads, max_norm=HYPERPARAMETERS['max_grad_norm'])
 
@@ -216,11 +182,7 @@ def train_model(model, dataset, optimizer, epochs):
         avg_epoch_loss = accumulated_epoch_loss / len(dataset)
         avg_aux_losses = accumulated_aux_losses / len(dataset)
         
-        # Update DWA weights based on training losses
-        dwa_weights, dwa_prev_losses = update_dwa_weights(avg_aux_losses, dwa_prev_losses, dwa_temperature)
-
         print(f"Epoch {epoch}: loss = {avg_epoch_loss}")
-        print(f"DWA weights: [{dwa_weights[0]:.3f}, {dwa_weights[1]:.3f}, {dwa_weights[2]:.3f}, {dwa_weights[3]:.3f}, {dwa_weights[4]:.3f}]")
 
         # Log to wandb with organized structure
         wandb.log({
@@ -235,13 +197,6 @@ def train_model(model, dataset, optimizer, epochs):
             "losses/bfs_state": float(avg_aux_losses[2]),
             "losses/bf_termination": float(avg_aux_losses[3]),
             "losses/bfs_termination": float(avg_aux_losses[4]),
-            
-            # DWA weights
-            "dwa_weights/bf_distance": float(dwa_weights[0]),
-            "dwa_weights/bf_predecessor": float(dwa_weights[1]),
-            "dwa_weights/bfs_state": float(dwa_weights[2]),
-            "dwa_weights/bf_termination": float(dwa_weights[3]),
-            "dwa_weights/bfs_termination": float(dwa_weights[4]),
         })
 
         if epoch % 10 == 0:
@@ -269,13 +224,6 @@ def train_model(model, dataset, optimizer, epochs):
 
 total_steps = HYPERPARAMETERS['epochs'] * len(train_dataset)
 decay_steps = int(total_steps * HYPERPARAMETERS['decay_ratio'])
-# warmup_steps = int(total_steps * HYPERPARAMETERS['warmup_steps'])
-
-# lr_warmup = optim.linear_schedule(
-#     init=0.0,
-#     end=HYPERPARAMETERS['start_lr'],
-#     steps=warmup_steps
-# )
 
 lr_decay = optim.cosine_decay(
     init=HYPERPARAMETERS['start_lr'],
@@ -283,9 +231,6 @@ lr_decay = optim.cosine_decay(
     end=HYPERPARAMETERS['end_lr']
 )
 
-# lr_scheduler = optim.join_schedules([lr_warmup, lr_decay], [warmup_steps])
-
-# Fix: Use the learning rate schedule instead of fixed rate
 optimizer = optim.Adam(learning_rate=lr_decay)
 
 train_model(model, train_dataset, optimizer, epochs=HYPERPARAMETERS['epochs']) 
