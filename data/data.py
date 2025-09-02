@@ -26,6 +26,31 @@ def barabasi_albert_edge_matrix(num_nodes=20, m=2):
     edge_matrix = mx.array(edges).T  # shape: (2, num_edges)
     return edge_matrix
 
+def add_self_loops(edge_matrix, num_nodes):
+    """
+    Add self loops to each node in the graph.
+    For each node i, adds edge (i,i).
+    """
+    if num_nodes == 0:
+        return edge_matrix
+    
+    # Create self loop edges for all nodes (without weights)
+    self_loop_edges = []
+    for i in range(num_nodes):
+        self_loop_edges.append([i, i])
+    
+    # Convert self loops to array
+    if not self_loop_edges:
+        return edge_matrix
+    
+    self_loops_array = mx.array(self_loop_edges).T
+    
+    # Concatenate with existing edges if any exist
+    if edge_matrix.size == 0:
+        return self_loops_array
+    else:
+        return mx.concatenate([edge_matrix, self_loops_array], axis=1)
+
 def make_bidirectional_edges(edge_matrix):
     """
     Convert directed edges to bidirectional by adding reverse edges.
@@ -49,11 +74,14 @@ def make_bidirectional_edges(edge_matrix):
     
     return mx.array(bidirectional_edges).T
 
-def append_uniform_edge_weights(edge_matrix, low=0.2, high=1.0):
-    if edge_matrix.size == 0:
+def append_uniform_edge_weights(edge_matrix, num_nodes, low=0.2, high=1.0):
+    if edge_matrix.size == 0 and num_nodes == 0:
         return edge_matrix
     
-    # First make edges bidirectional
+    # First add self loops (without weights initially)
+    edge_matrix = add_self_loops(edge_matrix, num_nodes)
+    
+    # Then make edges bidirectional
     edge_matrix = make_bidirectional_edges(edge_matrix)
     
     num_edges = edge_matrix.shape[1]
@@ -197,9 +225,9 @@ def generated_dataset(num_graphs=100, num_nodes=20, p=0.2, m=2):
     for _ in range(num_graphs):
         # Randomly choose graph type
         if mx.random.uniform() < 0.5:
-            edge_matrix = append_uniform_edge_weights(barabasi_albert_edge_matrix(num_nodes, m))
+            edge_matrix = append_uniform_edge_weights(barabasi_albert_edge_matrix(num_nodes, m), num_nodes)
         else:
-            edge_matrix = append_uniform_edge_weights(erdos_renyi_edge_matrix(num_nodes, p))
+            edge_matrix = append_uniform_edge_weights(erdos_renyi_edge_matrix(num_nodes, p), num_nodes)
 
         source_node = mx.random.randint(0, num_nodes).item()
 
