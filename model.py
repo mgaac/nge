@@ -28,14 +28,12 @@ class mp_layer(nn.Module):
 
         self.update_fn = nn.Linear(embed_dim, embed_dim)
         
-        # Use MLX's built-in Dropout layer
         self.dropout = nn.Dropout(p=dropout)
 
     def __call__(self, connection_matrix, node_embeddings):
 
         num_nodes = node_embeddings.shape[0]
 
-        # Get edge weights and reshape to [num_edges, 1] for broadcasting
         edge_weights = mx.expand_dims(connection_matrix[2], axis=-1)
 
         source_idx = connection_matrix[self.source_idx].astype(mx.int32)
@@ -53,7 +51,6 @@ class mp_layer(nn.Module):
 
         message = nn.relu(message)
         
-        # Apply dropout to the messages (features), not the graph structure
         message = self.dropout(message)
     
         if (self.agg_fn == aggregation_fn.SUM):
@@ -64,22 +61,17 @@ class mp_layer(nn.Module):
             agg_message = mx.zeros([num_nodes, self.embed_dim])
             agg_message = agg_message.at[target_idx].add(message)
             denominator = mx.zeros([num_nodes, 1]).at[target_idx].add(1)
-            # Fix: Use small positive epsilon instead of large negative number
-            agg_message = agg_message / mx.maximum(denominator, 1e-6)
+            agg_message = agg_message / mx.maximum(denominator, 1e-9)
 
         elif (self.agg_fn == aggregation_fn.MAX):
-            # Use more reasonable initialization value and handle nodes with no incoming edges
             agg_message = mx.full([num_nodes, self.embed_dim], -1e3)
             agg_message = agg_message.at[target_idx].maximum(message)
-            # For nodes with no incoming messages, reset to zero
             has_incoming = mx.zeros([num_nodes, 1]).at[target_idx].add(1) > 0
             agg_message = mx.where(has_incoming, agg_message, mx.zeros_like(agg_message))
 
         elif (self.agg_fn == aggregation_fn.MIN):
-            # Use more reasonable initialization value and handle nodes with no incoming edges  
             agg_message = mx.full([num_nodes, self.embed_dim], 1e3)
             agg_message = agg_message.at[target_idx].minimum(message)
-            # For nodes with no incoming messages, reset to zero
             has_incoming = mx.zeros([num_nodes, 1]).at[target_idx].add(1) > 0
             agg_message = mx.where(has_incoming, agg_message, mx.zeros_like(agg_message))
 
@@ -101,7 +93,6 @@ class mpnn(nn.Module):
         self.residual_connections = residual_connections
         self.agg_fn = agg_fn
 
-        # Fix: Use proper module list for parameter tracking
         self.mp_layers = [
             mp_layer(embed_dim, residual_connections, dropout, agg_fn)
             for _ in range(num_mp_layers)
@@ -127,9 +118,8 @@ class bfs_decoder(nn.Module):
     def __call__(self, data):
         node_embeddings, _ = data
 
-        # BFS state prediction
         bfs_state_predictions = self.bfs_state_outputs(node_embeddings)
-        bfs_state_predictions = mx.sigmoid(bfs_state_predictions.squeeze())
+        bfs_state_predictions = bfs_state_predictions.squeeze()
 
         return bfs_state_predictions
 
@@ -142,8 +132,6 @@ class bf_decoder(nn.Module):
 
         self.embed_dim = embed_dim
         
-        # Simplified Bellman-Ford distance head with proper initialization
-        # Use a single linear layer with proper initialization and output constraint
         self.bf_distance_outputs = nn.Linear(embed_dim, 1, bias=False)
         
         self.bf_predecessor_head = nn.Linear(2 * embed_dim, 1)
@@ -156,32 +144,23 @@ class bf_decoder(nn.Module):
         source_idx = connection_matrix[self.source_idx].astype(mx.int32)
         target_idx = connection_matrix[self.target_idx].astype(mx.int32)
 
-        # Simplified distance prediction with stability improvements
         bf_distance_predictions = self.bf_distance_outputs(node_embeddings)
         
-        # Apply ReLU to ensure non-negative distances (shortest paths can't be negative)
-        # Add small epsilon for numerical stability
         bf_distance_predictions = nn.relu(bf_distance_predictions) + 1e-6
         bf_distance_predictions = bf_distance_predictions.squeeze()
 
-        # Bellman-Ford predecessor predictions with efficient neighborhood-aware selection
         source_embeddings = mx.take(node_embeddings, source_idx, axis=0)
         target_embeddings = mx.take(node_embeddings, target_idx, axis=0)
         
-        # Process edge features
         concatenated_embeddings = mx.concat([source_embeddings, target_embeddings], axis=1)
         edge_features = nn.relu(self.bf_predecessor_head(concatenated_embeddings))
         edge_scores = edge_features.squeeze()
 
-        # Create adjacency-aware predecessor predictions
-        # Initialize with very negative values to ensure invalid connections are never selected
         bf_predecessor_predictions = mx.full([num_nodes, num_nodes], -1e6)
         
-        # Only populate scores for actual edges in the graph using in-place assignment
         bf_predecessor_predictions[target_idx, source_idx] = edge_scores
         
-        # Apply softmax per target node (each row represents a target node's choices)
-        bf_predecessor_predictions = nn.softmax(bf_predecessor_predictions, axis=1)
+        #bf_predecessor_predictions = nn.softmax(bf_predecessor_predictions, axis=1)
         
         return bf_distance_predictions, bf_predecessor_predictions
     
@@ -189,40 +168,31 @@ class nge(nn.Module):
     def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum, num_mp_layers: int, dropout: float = 0.0):
         super(nge, self).__init__()
 
+        self.encoder = nn.Linear(embed_dim + 2, embed_dim)
 
-        # Separate encoders for each algorithm
-        # 3 is the number of additional features (bfs_state, bf_distance, bf_predecessor)
-        self.encoder = nn.Linear(embed_dim + 3, embed_dim)
-
-        # Separate decoders for each algorithm
         self.bfs_decoder = bfs_decoder(embed_dim)
         self.bf_decoder = bf_decoder(embed_dim)
 
-        # Separate termination heads for each algorithm 
         self.bfs_termination = nn.Linear(embed_dim, 1, bias=True)
         self.bf_termination = nn.Linear(embed_dim, 1, bias=True)
     
-        # Shared processor
         self.processor = mpnn(embed_dim, residual_connections, agg_fn, num_mp_layers, dropout)
 
     def __call__(self, data):
         node_embeddings, connection_matrix = data
 
-        # Process through both algorithm-specific encoders
         encoded_embeddings = self.encoder(node_embeddings)
         
-        # Process through shared MPNN
         processed_embeddings = self.processor((encoded_embeddings, connection_matrix))
         
-        # Process through algorithm-specific decoders
         bfs_output = self.bfs_decoder((processed_embeddings, connection_matrix))
         bf_output = self.bf_decoder((processed_embeddings, connection_matrix))
 
         avg_embeddings = mx.mean(processed_embeddings, axis=0)
 
-        bfs_termination_prob = mx.sigmoid(self.bfs_termination(avg_embeddings).squeeze())
+        bfs_termination_prob = self.bfs_termination(avg_embeddings).squeeze()
 
-        bf_termination_prob = mx.sigmoid(self.bf_termination(avg_embeddings).squeeze())
+        bf_termination_prob = self.bf_termination(avg_embeddings).squeeze()
         
         termination_probs = {
             'bfs': bfs_termination_prob,

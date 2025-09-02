@@ -137,8 +137,7 @@ def clean_bf_logs(log: List[List[float]] | List[List[int | None]]) -> mx.array:
         finite_vals = [x for x in log[-1] if x != float('inf')]
         inf_replacement = (max(finite_vals) + 1) if finite_vals else 1e6
         def clean_val(x):
-            cleaned = inf_replacement if x == float('inf') else x
-            return cleaned / inf_replacement
+            return inf_replacement if x == float('inf') else x
     else:
         # Replace None with 0
         def clean_val(x):
@@ -273,7 +272,7 @@ if __name__ == "__main__":
     # Only generate and save datasets when this script is run directly
     print("Generating datasets...")
     
-    train_dataset = generated_dataset(1000, 20, 0.2, 2)
+    train_dataset = generated_dataset(1500, 20, 0.2, 2)
     val_dataset = generated_dataset(100, 20, 0.2, 2)
     test_dataset = generated_dataset(100, 20, 0.2, 2)
 

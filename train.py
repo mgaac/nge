@@ -1,12 +1,9 @@
 import mlx.core as mx
 import mlx.nn as nn
-import mlx.utils as utils
 
 import mlx.optimizers as optim
 
-import numpy as np
-
-import wandb
+import wandb    
 
 from model import nge, aggregation_fn
 from data.data import load_dataset
@@ -19,13 +16,13 @@ MODEL_CONFIG = {
     'residual_connections': True,
     'agg_fn': aggregation_fn.MAX,
     'num_mp_layers': 2,
-    'dropout': 0.05,
+    'dropout': 0.1,
 }
 
 HYPERPARAMETERS = {
     'epochs': 2000,
     'start_lr':1e-3,
-    'end_lr': 5e-6,
+    'end_lr': 1e-5,
     'decay_ratio': .2,
     'max_grad_norm': 1.0,
 }
@@ -54,10 +51,9 @@ def graph_execution_loss_fn(model, graph_data):
     
     for i in range(num_steps):
         # Check if samples exist
-        bf_sample_exists = i < num_bf_steps and (i + 1) < num_bf_steps
-        bfs_sample_exists = i < num_bfs_steps and (i + 1) < num_bfs_steps
+        bf_sample_exists = (i + 1) < num_bf_steps
+        bfs_sample_exists = (i + 1) < num_bfs_steps
 
-        # If neither sample exists, skip this step
         if not (bf_sample_exists or bfs_sample_exists):
             continue
 
@@ -71,12 +67,10 @@ def graph_execution_loss_fn(model, graph_data):
 
         if bf_sample_exists:
             true_distance_bf = graph_data['bf_distance_targets'][i]
-            true_predecessor_bf = graph_data['bf_predecessor_targets'][i]
             target_distance_bf = graph_data['bf_distance_targets'][i+1]
             target_predecessor_bf = graph_data['bf_predecessor_targets'][i+1]
         else:
             true_distance_bf = graph_data['bf_distance_targets'][-1]
-            true_predecessor_bf = graph_data['bf_predecessor_targets'][-1]
             target_distance_bf = graph_data['bf_distance_targets'][-1]
             target_predecessor_bf = graph_data['bf_predecessor_targets'][-1]
 
@@ -89,8 +83,8 @@ def graph_execution_loss_fn(model, graph_data):
         }
 
         # Prepare model inputs
-        node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf, true_predecessor_bf]).reshape([-1, 3])
-        input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features ], axis=1)
+        node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf]).reshape([-1, 2])
+        input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
         model_input = (input_embeddings, graph_data['edge_matrix'])
 
         # Forward pass
@@ -123,7 +117,8 @@ def graph_execution_loss_fn(model, graph_data):
         accumulated_aux_losses += raw_losses
 
     average_loss = accumulated_loss / (num_steps - 1)
-    avg_aux_losses = accumulated_aux_losses / (num_steps - 1)
+    per_task_counter = mx.array([num_bf_steps * 2, num_bfs_steps * 2, num_bf_steps, num_bfs_steps, num_bf_steps + num_bfs_steps])
+    avg_aux_losses = accumulated_aux_losses / per_task_counter
 
     return average_loss, avg_aux_losses
 
@@ -166,7 +161,7 @@ def train_model(model, dataset, optimizer, epochs):
         accumulated_epoch_loss = mx.array(0.0)
         accumulated_aux_losses = mx.zeros([5])
 
-        for i, graph_data in enumerate(dataset):
+        for _, graph_data in enumerate(dataset):
             
             (loss, aux_losses), grads = loss_and_grad_fn(model, graph_data)
 
@@ -189,7 +184,6 @@ def train_model(model, dataset, optimizer, epochs):
             # Main metrics (at root level for easy access)
             "loss": float(avg_epoch_loss),
             "lr": float(optimizer.learning_rate),
-            "grad_norm": float(norm),
             
             # Loss breakdown
             "losses/bf_distance": float(avg_aux_losses[0]),
@@ -231,7 +225,7 @@ lr_decay = optim.cosine_decay(
     end=HYPERPARAMETERS['end_lr']
 )
 
-optimizer = optim.Adam(learning_rate=lr_decay)
+optimizer = optim.Adam(learning_rate=HYPERPARAMETERS['end_lr'])
 
 train_model(model, train_dataset, optimizer, epochs=HYPERPARAMETERS['epochs']) 
 test_aux_losses, test_loss, test_accuracies = evaluate_model(model, test_dataset)
