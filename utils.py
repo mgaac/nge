@@ -55,7 +55,7 @@ def print_execution_details(model, graph_data, embedding_dim):
         }
 
         # Prepare model inputs
-        node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf, true_predecessor_bf]).reshape([-1, 3])
+        node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf]).reshape([-1, 2])
         input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
         model_input = (input_embeddings, graph_data['edge_matrix'])
 
@@ -229,7 +229,7 @@ def calculate_losses_and_accuracies(model, graph_data, embedding_dim=128):
         }
 
         # Prepare model inputs
-        node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf, true_predecessor_bf]).reshape([-1, 3])
+        node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf]).reshape([-1, 2])
         input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
         model_input = (input_embeddings, graph_data['edge_matrix'])
 
@@ -402,7 +402,7 @@ def calculate_accuracies(model, graph_data, embedding_dim=128):
         }
 
         # Prepare model inputs
-        node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf, true_predecessor_bf]).reshape([-1, 3])
+        node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf]).reshape([-1, 2])
         input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
         model_input = (input_embeddings, graph_data['edge_matrix'])
 

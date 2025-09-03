@@ -21,9 +21,9 @@ MODEL_CONFIG = {
 
 HYPERPARAMETERS = {
     'epochs': 2000,
-    'start_lr':1e-3,
-    'end_lr': 1e-5,
-    'decay_ratio': .2,
+    'start_lr':1e-6,
+    'end_lr': 1e-7,
+    'decay_ratio': .01,
     'max_grad_norm': 1.0,
 }
 
@@ -133,7 +133,7 @@ def evaluate_model(model, dataset):
     accumulated_aux_losses = mx.zeros([5])
     accumulated_accuracies = mx.zeros([5])
 
-    for i, graph_data in enumerate(dataset):
+    for graph_data in dataset:
         
         aux_losses, loss, accuracies = calculate_losses_and_accuracies(model, graph_data, MODEL_CONFIG['embed_dim'])
 
@@ -225,7 +225,7 @@ lr_decay = optim.cosine_decay(
     end=HYPERPARAMETERS['end_lr']
 )
 
-optimizer = optim.Adam(learning_rate=HYPERPARAMETERS['end_lr'])
+optimizer = optim.Adam(learning_rate=lr_decay)
 
 train_model(model, train_dataset, optimizer, epochs=HYPERPARAMETERS['epochs']) 
 test_aux_losses, test_loss, test_accuracies = evaluate_model(model, test_dataset)

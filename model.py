@@ -146,19 +146,18 @@ class bf_decoder(nn.Module):
 
         bf_distance_predictions = self.bf_distance_outputs(node_embeddings)
         
-        bf_distance_predictions = nn.relu(bf_distance_predictions) + 1e-6
+        # bf_distance_predictions = nn.relu(bf_distance_predictions) + 1e-6
         bf_distance_predictions = bf_distance_predictions.squeeze()
 
         source_embeddings = mx.take(node_embeddings, source_idx, axis=0)
         target_embeddings = mx.take(node_embeddings, target_idx, axis=0)
         
         concatenated_embeddings = mx.concat([source_embeddings, target_embeddings], axis=1)
-        edge_features = nn.relu(self.bf_predecessor_head(concatenated_embeddings))
-        edge_scores = edge_features.squeeze()
+        edge_features = self.bf_predecessor_head(concatenated_embeddings).squeeze()
 
         bf_predecessor_predictions = mx.full([num_nodes, num_nodes], -1e6)
         
-        bf_predecessor_predictions[target_idx, source_idx] = edge_scores
+        bf_predecessor_predictions[target_idx, source_idx] = edge_features
         
         #bf_predecessor_predictions = nn.softmax(bf_predecessor_predictions, axis=1)
         
