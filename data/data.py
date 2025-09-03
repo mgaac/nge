@@ -169,7 +169,7 @@ def clean_bf_logs(log: List[List[float]] | List[List[int | None]]) -> mx.array:
     else:
         # Replace None with 0
         def clean_val(x):
-            return 0 if x is None else x
+            return -1 if x is None else x
 
     cleaned_log = []
     for state in log:

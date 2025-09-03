@@ -1,6 +1,7 @@
 import mlx.core as mx
 import mlx.nn as nn
 
+import mlx.utils as utils
 import mlx.optimizers as optim
 
 import wandb    
@@ -21,10 +22,11 @@ MODEL_CONFIG = {
 
 HYPERPARAMETERS = {
     'epochs': 2000,
-    'start_lr':1e-6,
-    'end_lr': 1e-7,
+    'start_lr':1e-5,
+    'end_lr': 1e-5,
     'decay_ratio': .01,
     'max_grad_norm': 1.0,
+    'batch_size' : 10,
 }
 
 model = nge(**MODEL_CONFIG)
@@ -116,9 +118,19 @@ def graph_execution_loss_fn(model, graph_data):
         accumulated_loss += total_step_loss
         accumulated_aux_losses += raw_losses
 
-    average_loss = accumulated_loss / (num_steps - 1)
-    per_task_counter = mx.array([num_bf_steps * 2, num_bfs_steps * 2, num_bf_steps, num_bfs_steps, num_bf_steps + num_bfs_steps])
-    avg_aux_losses = accumulated_aux_losses / per_task_counter
+        bf_steps  = max(num_bf_steps  - 1, 0)
+        bfs_steps = max(num_bfs_steps - 1, 0)
+        effective_steps = max(bf_steps, bfs_steps, 1)
+
+        average_loss = accumulated_loss / effective_steps
+        per_task_counter = mx.array([
+            max(bf_steps, 1),   # bf_distance
+            max(bf_steps, 1),   # bf_predecessor
+            max(bfs_steps, 1),  # bfs_state
+            max(bf_steps, 1),   # bf_termination
+            max(bfs_steps, 1),  # bfs_termination
+        ], dtype=mx.float32)
+        avg_aux_losses = accumulated_aux_losses / per_task_counter
 
     return average_loss, avg_aux_losses
 
@@ -161,26 +173,44 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
         accumulated_epoch_loss = mx.array(0.0)
         accumulated_aux_losses = mx.zeros([5])
 
-        permutaiton = mx.random.permutation(len(dataset))
-        dataset = [dataset[i.item()] for i in permutaiton]
+        permutation = mx.random.permutation(len(dataset))
+        # We will index into the original Python list using this permutation
+        # (do not convert the dataset itself to an mx.array)
 
-        acc_batch_grads = mx.array(0.0)
+        acc_batch_grads = None
+        bucket_count = 0
 
-        for i, graph_data in enumerate(dataset):
-            
+        for idx_in_epoch, idx in enumerate(permutation):
+            graph_data = dataset[int(idx.item())]
+
             (loss, aux_losses), grads = loss_and_grad_fn(model, graph_data)
-            
-            acc_batch_grads += grads
 
-            if (i + 1) % batch_size == 0:
-                grads = acc_batch_grads / batch_size
-                
-                grads, norm = optim.clip_grad_norm(grads, max_norm=HYPERPARAMETERS['max_grad_norm'])
+            # --- Gradient accumulation ---
+            if acc_batch_grads is None:
+                # First gradient defines the tree structure
+                acc_batch_grads = grads
+            else:
+                # Element-wise add across the gradient pytree
+                acc_batch_grads = utils.tree_map(lambda a, b: a + b, acc_batch_grads, grads)
+            bucket_count += 1
 
-                optimizer.update(model, grads)
+            end_of_bucket = (bucket_count == batch_size)
+            end_of_epoch  = (idx_in_epoch + 1 == len(permutation))
+            if end_of_bucket or end_of_epoch:
+                # Average by actual bucket size (last bucket may be smaller)
+                avg_grads = utils.tree_map(lambda x: x / bucket_count, acc_batch_grads)
 
+                avg_grads, norm = optim.clip_grad_norm(
+                    avg_grads, max_norm=HYPERPARAMETERS['max_grad_norm']
+                )
+                optimizer.update(model, avg_grads)
                 mx.eval(model.parameters(), optimizer.state)
 
+                # Reset for next bucket
+                acc_batch_grads = None
+                bucket_count = 0
+
+            # --- Book-keeping for epoch metrics ---
             accumulated_epoch_loss += loss
             accumulated_aux_losses += aux_losses
 
@@ -237,7 +267,7 @@ lr_decay = optim.cosine_decay(
 
 optimizer = optim.Adam(learning_rate=lr_decay)
 
-train_model(model, train_dataset, optimizer, epochs=HYPERPARAMETERS['epochs']) 
+train_model(model, train_dataset, optimizer, epochs=HYPERPARAMETERS['epochs'], batch_size=HYPERPARAMETERS['batch_size']) 
 test_aux_losses, test_loss, test_accuracies = evaluate_model(model, test_dataset)
 wandb.log({
     "test_loss": float(test_loss),
