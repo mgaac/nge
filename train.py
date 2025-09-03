@@ -150,7 +150,7 @@ def evaluate_model(model, dataset):
 
     return avg_aux_losses, avg_epoch_loss, avg_accuracies
 
-def train_model(model, dataset, optimizer, epochs):
+def train_model(model, dataset, optimizer, epochs, batch_size=1):
     # Set model to training mode (enables dropout)
     model.train()
     
@@ -161,15 +161,25 @@ def train_model(model, dataset, optimizer, epochs):
         accumulated_epoch_loss = mx.array(0.0)
         accumulated_aux_losses = mx.zeros([5])
 
-        for _, graph_data in enumerate(dataset):
+        permutaiton = mx.random.permutation(len(dataset))
+        dataset = [dataset[i.item()] for i in permutaiton]
+
+        acc_batch_grads = mx.array(0.0)
+
+        for i, graph_data in enumerate(dataset):
             
             (loss, aux_losses), grads = loss_and_grad_fn(model, graph_data)
+            
+            acc_batch_grads += grads
 
-            grads, norm = optim.clip_grad_norm(grads, max_norm=HYPERPARAMETERS['max_grad_norm'])
+            if (i + 1) % batch_size == 0:
+                grads = acc_batch_grads / batch_size
+                
+                grads, norm = optim.clip_grad_norm(grads, max_norm=HYPERPARAMETERS['max_grad_norm'])
 
-            optimizer.update(model, grads)
+                optimizer.update(model, grads)
 
-            mx.eval(model.parameters(), optimizer.state)
+                mx.eval(model.parameters(), optimizer.state)
 
             accumulated_epoch_loss += loss
             accumulated_aux_losses += aux_losses
