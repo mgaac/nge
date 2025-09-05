@@ -22,11 +22,11 @@ MODEL_CONFIG = {
 
 HYPERPARAMETERS = {
     'epochs': 2000,
-    'start_lr':1e-5,
-    'end_lr': 1e-5,
+    'start_lr':1e-6,
+    'end_lr': 1e-6,
     'decay_ratio': .01,
     'max_grad_norm': 1.0,
-    'batch_size' : 10,
+    'batch_size' : 5,
 }
 
 model = nge(**MODEL_CONFIG)
@@ -96,7 +96,19 @@ def graph_execution_loss_fn(model, graph_data):
         if bf_sample_exists:
             bf_distance_predictions, bf_predecessor_predictions = bf_output
             bf_distance_loss = nn.losses.mse_loss(bf_distance_predictions, target_distance_bf, reduction='mean')
-            bf_predecessor_loss = nn.losses.cross_entropy(bf_predecessor_predictions, target_predecessor_bf, reduction='mean')
+
+            # Conver invalid, denoted by -1, to a valid class, 0.
+            valid_mask = (target_predecessor_bf != -1)                          # [num_nodes] bool
+            safe_targets = mx.where(valid_mask, target_predecessor_bf,
+                                    mx.zeros_like(target_predecessor_bf))  
+            
+            per_node_ce = nn.losses.cross_entropy(bf_predecessor_predictions, safe_targets, reduction='none')
+
+            # Only consider loss over valid nodes
+            valid_mask_f = valid_mask.astype(mx.float32)
+            denom = mx.maximum(valid_mask_f.sum(), mx.array(1.0))
+            bf_predecessor_loss = (per_node_ce * valid_mask_f).sum() / denom
+
             bf_termination_loss = nn.losses.binary_cross_entropy(termination_probs['bf'], termination_targets['bf'], reduction='mean')
         else:
             bf_distance_loss = mx.array(0.0)
@@ -233,7 +245,7 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
             "losses/bfs_termination": float(avg_aux_losses[4]),
         })
 
-        if epoch % 10 == 0:
+        if (epoch + 1) % 10 == 0:
             val_aux_losses, val_loss, val_accuracies = evaluate_model(model, val_dataset)
 
             wandb.log({
@@ -255,7 +267,6 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
             _, norm  = print_execution_details(model, train_dataset[random_idx], MODEL_CONFIG['embed_dim'])
             wandb.log({"debug/hidden_state_norm": float(norm)})
 
-
 total_steps = HYPERPARAMETERS['epochs'] * len(train_dataset)
 decay_steps = int(total_steps * HYPERPARAMETERS['decay_ratio'])
 
@@ -265,7 +276,7 @@ lr_decay = optim.cosine_decay(
     end=HYPERPARAMETERS['end_lr']
 )
 
-optimizer = optim.Adam(learning_rate=lr_decay)
+optimizer = optim.Adam(learning_rate=HYPERPARAMETERS['end_lr'])
 
 train_model(model, train_dataset, optimizer, epochs=HYPERPARAMETERS['epochs'], batch_size=HYPERPARAMETERS['batch_size']) 
 test_aux_losses, test_loss, test_accuracies = evaluate_model(model, test_dataset)

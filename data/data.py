@@ -131,13 +131,14 @@ def bellman_ford_log(
 
             for j, w in in_neighbors[i]:
                 cand = distance[j] + w
-                if cand <= best_cost:          # non-strict comparison
+                if cand <= best_cost:          # tie OK; write only on relaxation below
                     best_cost = cand
                     best_pred = j
 
-            new_predecessor[i] = best_pred     # record arg-min j
-            if best_cost < new_distance[i]:    # genuine relaxation?
-                new_distance[i] = best_cost
+            # write predecessor only on genuine relaxation
+            if best_cost < new_distance[i]:
+                new_distance[i]    = best_cost
+                new_predecessor[i] = best_pred
                 updated = True
 
         distance      = new_distance
@@ -151,32 +152,32 @@ def bellman_ford_log(
     return distance_log, predecessor_log
 
 
-
 def clean_bf_logs(log: List[List[float]] | List[List[int | None]]) -> mx.array:
-    # Determine if this is a distance log (float) or predecessor log (int/None)
-    is_distance_log = isinstance(log[0][0], float)
-    # Defensive: handle empty log
     if not log or not log[-1]:
         return mx.array(log)
 
-    # Compute replacements
+    is_distance_log = isinstance(log[0][0], float)
+
     if is_distance_log:
-        # Replace inf with max finite value + 1
-        finite_vals = [x for x in log[-1] if x != float('inf')]
-        inf_replacement = (max(finite_vals) + 1) if finite_vals else 1e6
-        def clean_val(x):
-            return inf_replacement if x == float('inf') else x
+        final = log[-1]
+        finite_vals = [x for x in final if x != float('inf')]
+        # Per-graph scale
+        S = (max(finite_vals) + 1.0) if finite_vals else 1.0
+
+        normalized = []
+        for state in log:
+            # map inf -> S, then divide by S
+            state_norm = [((S if x == float('inf') else x) / S) for x in state]
+            normalized.append(state_norm)
+        return mx.array(normalized, dtype=mx.float32)
+
     else:
-        # Replace None with 0
-        def clean_val(x):
-            return -1 if x is None else x
-
-    cleaned_log = []
-    for state in log:
-        cleaned_state = [clean_val(x) for x in state]
-        cleaned_log.append(cleaned_state)
-
-    return mx.array(cleaned_log)
+        # predecessor log: None -> -1 sentinel
+        cleaned_log = []
+        for state in log:
+            cleaned_state = [(-1 if x is None else x) for x in state]
+            cleaned_log.append(cleaned_state)
+        return mx.array(cleaned_log)
 
 
 

@@ -1,95 +1,104 @@
 import mlx.core as mx
 import mlx.nn as nn
-
 import numpy as np
 
 def print_execution_details(model, graph_data, embedding_dim):
     accumulated_loss = mx.array(0.0)
     num_nodes = graph_data['num_nodes']
-   
+
     previous_step_hidden_states = mx.zeros([num_nodes, embedding_dim])
 
-    num_bf_steps = len(graph_data['bf_distance_targets'])
+    num_bf_steps  = len(graph_data['bf_distance_targets'])
     num_bfs_steps = len(graph_data['bfs_state_targets'])
+    num_steps     = max(num_bf_steps, num_bfs_steps)
 
-    num_steps = max(num_bf_steps, num_bfs_steps)
-    
     steps_executed = 0
-    
-    for i in range(num_steps):
-        # Check if samples exist
-        bf_sample_exists = i < num_bf_steps and (i + 1) < num_bf_steps
-        bfs_sample_exists = i < num_bfs_steps and (i + 1) < num_bfs_steps
 
-        # If neither sample exists, skip this step
+    for i in range(num_steps):
+        # step-availability (need i and i+1)
+        bf_sample_exists  = (i + 1) < num_bf_steps
+        bfs_sample_exists = (i + 1) < num_bfs_steps
         if not (bf_sample_exists or bfs_sample_exists):
             continue
 
         steps_executed += 1
 
-        # Prepare data for current step
+        # targets for t -> t+1
         if bfs_sample_exists:
-            true_bfs_state = graph_data['bfs_state_targets'][i]
-            target_bfs_state = graph_data['bfs_state_targets'][i+1]
+            true_bfs_state   = graph_data['bfs_state_targets'][i]
+            target_bfs_state = graph_data['bfs_state_targets'][i + 1]
         else:
-            true_bfs_state = graph_data['bfs_state_targets'][-1]
+            true_bfs_state   = graph_data['bfs_state_targets'][-1]
             target_bfs_state = graph_data['bfs_state_targets'][-1]
 
         if bf_sample_exists:
-            true_distance_bf = graph_data['bf_distance_targets'][i]
-            true_predecessor_bf = graph_data['bf_predecessor_targets'][i]
-            target_distance_bf = graph_data['bf_distance_targets'][i+1]
-            target_predecessor_bf = graph_data['bf_predecessor_targets'][i+1]
+            true_distance_bf    = graph_data['bf_distance_targets'][i]     # already normalized in [0,1]
+            target_distance_bf  = graph_data['bf_distance_targets'][i + 1] # normalized
+            target_predecessor  = graph_data['bf_predecessor_targets'][i + 1]  # int with -1 sentinel
         else:
-            true_distance_bf = graph_data['bf_distance_targets'][-1]
-            true_predecessor_bf = graph_data['bf_predecessor_targets'][-1]
-            target_distance_bf = graph_data['bf_distance_targets'][-1]
-            target_predecessor_bf = graph_data['bf_predecessor_targets'][-1]
+            true_distance_bf    = graph_data['bf_distance_targets'][-1]
+            target_distance_bf  = graph_data['bf_distance_targets'][-1]
+            target_predecessor  = graph_data['bf_predecessor_targets'][-1]
 
-        # Generate termination targets
-        is_last_bf_step = (i + 1) == (num_bf_steps - 1)
+        # termination targets (as floats 0/1)
+        is_last_bf_step  = (i + 1) == (num_bf_steps  - 1)
         is_last_bfs_step = (i + 1) == (num_bfs_steps - 1)
         termination_targets = {
-            'bf': mx.array(1.0 if is_last_bf_step else 0.0),
-            'bfs': mx.array(1.0 if is_last_bfs_step else 0.0)
+            'bf' : mx.array(1.0 if is_last_bf_step  else 0.0),
+            'bfs': mx.array(1.0 if is_last_bfs_step else 0.0),
         }
 
-        # Prepare model inputs
+        # model input (distances already normalized in dataset)
         node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf]).reshape([-1, 2])
-        input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
-        model_input = (input_embeddings, graph_data['edge_matrix'])
+        input_embeddings   = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
+        model_input        = (input_embeddings, graph_data['edge_matrix'])
 
-        # Forward pass
-        bfs_output, bf_output, termination_probs, processed_embeddings = model(model_input)
+        # forward
+        bfs_output, bf_output, termination_logits, processed_embeddings = model(model_input)
 
-        # Compute losses
+        # losses
         if bf_sample_exists:
-            bf_distance_predictions, bf_predecessor_predictions = bf_output
-            bf_distance_loss = nn.losses.mse_loss(bf_distance_predictions, target_distance_bf, reduction='mean')
-            bf_predecessor_loss = nn.losses.cross_entropy(bf_predecessor_predictions, target_predecessor_bf, reduction='mean')
-            bf_termination_loss = nn.losses.binary_cross_entropy(termination_probs['bf'], termination_targets['bf'], reduction='mean', with_logits=True)
+            bf_distance_pred, bf_pred_logits = bf_output  # shapes: [N], [N,N]
+
+            # distance MSE on normalized values
+            bf_distance_loss = nn.losses.mse_loss(bf_distance_pred, target_distance_bf, reduction='mean')
+
+            # masked CE: ignore -1 (undefined)
+            valid_mask      = (target_predecessor != -1)
+            safe_targets    = mx.where(valid_mask, target_predecessor, mx.zeros_like(target_predecessor))
+            ce_per_node     = nn.losses.cross_entropy(bf_pred_logits, safe_targets, reduction='none')
+            denom           = mx.maximum(valid_mask.astype(mx.float32).sum(), mx.array(1.0))
+            bf_predecessor_loss = (ce_per_node * valid_mask.astype(mx.float32)).sum() / denom
+
+            # termination: logits in, with_logits=True
+            bf_termination_loss = nn.losses.binary_cross_entropy(
+                termination_logits['bf'], termination_targets['bf'], reduction='mean', with_logits=True
+            )
         else:
             bf_distance_loss = mx.array(0.0)
             bf_predecessor_loss = mx.array(0.0)
             bf_termination_loss = mx.array(0.0)
 
         if bfs_sample_exists:
-            bfs_state_loss = nn.losses.binary_cross_entropy(bfs_output, target_bfs_state, reduction='mean', with_logits=True)
-            bfs_termination_loss = nn.losses.binary_cross_entropy(termination_probs['bfs'], termination_targets['bfs'], reduction='mean', with_logits=True)
+            bfs_state_loss = nn.losses.binary_cross_entropy(
+                bfs_output, target_bfs_state, reduction='mean', with_logits=True
+            )
+            bfs_termination_loss = nn.losses.binary_cross_entropy(
+                termination_logits['bfs'], termination_targets['bfs'], reduction='mean', with_logits=True
+            )
         else:
             bfs_state_loss = mx.array(0.0)
             bfs_termination_loss = mx.array(0.0)
 
         total_step_loss = bf_distance_loss + bf_predecessor_loss + bfs_state_loss + bf_termination_loss + bfs_termination_loss
 
-        # Update for next step
+        # update state
         previous_step_hidden_states = processed_embeddings
         accumulated_loss += total_step_loss
 
+        # ---- diagnostics ----
         print(f"\n=== Step {steps_executed} ===")
         print(f"Total Loss: {total_step_loss.item():.6f}")
-        
-        # Loss breakdown
         print("Loss Breakdown:")
         print(f"  BF Distance:     {bf_distance_loss.item():.6f}")
         print(f"  BF Predecessor:  {bf_predecessor_loss.item():.6f}")
@@ -97,70 +106,60 @@ def print_execution_details(model, graph_data, embedding_dim):
         print(f"  BF Termination:  {bf_termination_loss.item():.6f}")
         print(f"  BFS Termination: {bfs_termination_loss.item():.6f}")
 
-        # Model outputs and statistics
         if bf_sample_exists:
-            bf_distance_logits = bf_output[0]
-            bf_predecessor_logits = bf_output[1]
-            
             print("\nBF Distance:")
-            print(f"  Logits: norm={mx.linalg.norm(bf_distance_logits).item():.6f}, std={mx.std(bf_distance_logits).item():.6f}")
-            print(f"  Pred: {np.array(bf_distance_logits).round(4)}")
+            print(f"  Pred norm={mx.linalg.norm(bf_distance_pred).item():.6f}, std={mx.std(bf_distance_pred).item():.6f}")
+            print(f"  Pred: {np.array(bf_distance_pred).round(4)}")
             print(f"  Targ: {np.array(target_distance_bf).round(4)}")
-            
+
             print("\nBF Predecessor:")
-            print(f"  Logits: norm={mx.linalg.norm(bf_predecessor_logits).item():.6f}, std={mx.std(bf_predecessor_logits).item():.6f}")
-            print(f"  Pred: {np.argmax(np.array(bf_predecessor_logits), axis=-1)}")
-            print(f"  Targ: {np.array(target_predecessor_bf)}")
-            
+            print(f"  Logits: norm={mx.linalg.norm(bf_pred_logits).item():.6f}, std={mx.std(bf_pred_logits).item():.6f}")
+            argmax_pred = np.argmax(np.array(bf_pred_logits), axis=-1)
+            print(f"  Pred (argmax): {argmax_pred}")
+            print(f"  Targ: {np.array(target_predecessor)}")
+
             print("\nBF Termination:")
-            bf_term_logit = termination_probs['bf']
-            bf_term_prob  = mx.sigmoid(bf_term_logit)
-            print(f"  Logit: norm={mx.linalg.norm(bf_term_logit).item():.6f}, value={bf_term_logit.item():.4f}")
-            print(f"  Prob: {bf_term_prob.item():.4f}")
-            print(f"  Targ: {termination_targets['bf'].item():.4f}")
-            
+            z = termination_logits['bf']
+            p = mx.sigmoid(z)
+            print(f"  Logit: {z.item():.4f}  Prob: {p.item():.4f}  Targ: {termination_targets['bf'].item():.4f}")
+
         if bfs_sample_exists:
             print("\nBFS State:")
             print(f"  Logits: norm={mx.linalg.norm(bfs_output).item():.6f}, std={mx.std(bfs_output).item():.6f}")
-            print(f"  Pred: {(np.array(bfs_output) > 0).astype(int)}")
-            print(f"  Targ: {np.array(target_bfs_state).astype(int)}")
-            
+            print(f"  Pred>0: {(np.array(bfs_output) > 0).astype(int)}")
+            print(f"  Targ:   {np.array(target_bfs_state).astype(int)}")
+
             print("\nBFS Termination:")
-            bfs_term_logit = termination_probs['bfs']
-            bfs_term_prob  = mx.sigmoid(bfs_term_logit)
-            print(f"  Logit: norm={mx.linalg.norm(bfs_term_logit).item():.6f}, value={bfs_term_logit.item():.4f}")
-            print(f"  Prob: {bfs_term_prob.item():.4f}")
-            print(f"  Targ: {termination_targets['bfs'].item():.4f}")
-            
+            z = termination_logits['bfs']
+            p = mx.sigmoid(z)
+            print(f"  Logit: {z.item():.4f}  Prob: {p.item():.4f}  Targ: {termination_targets['bfs'].item():.4f}")
+
         print(f"\nHidden State: norm={mx.linalg.norm(processed_embeddings).item():.6f}, std={mx.std(processed_embeddings).item():.6f}")
 
-    # Calculate average loss correctly
-    if steps_executed > 0:
-        average_loss = accumulated_loss / steps_executed
-    else:
-        average_loss = mx.array(0.0)
+    avg_loss = accumulated_loss / steps_executed if steps_executed > 0 else mx.array(0.0)
 
     print(f"\n=== Summary ===")
     print(f"Steps executed: {steps_executed}")
-    print(f"Average loss: {average_loss.item():.6f}")
+    print(f"Average loss:   {avg_loss.item():.6f}")
 
-    return average_loss, mx.linalg.norm(processed_embeddings)
+    return avg_loss, mx.linalg.norm(processed_embeddings)
 
 def calculate_losses_and_accuracies(model, graph_data, embedding_dim=128):
     """
-    Combined function that calculates both losses and accuracies in a single forward pass.
-    Returns: (aux_losses, total_loss, accuracies)
+    Returns: (aux_losses[5], total_loss, accuracies[5])
+    aux_losses = [bf_dist, bf_pred, bfs_state, bf_term, bfs_term]  (averaged over *their* executed steps)
+    accuracies = per-task accuracies with proper masking and thresholds.
     """
     accumulated_loss = mx.array(0.0)
-    
-    # Accuracy counters
+
+    # accuracy counters
     bf_distance_correct = 0
     bf_predecessor_correct = 0
     bfs_state_correct = 0
     bf_termination_correct = 0
     bfs_termination_correct = 0
-    
-    # Total sample counters for accurate percentage calculation
+
+    # totals for denominators
     bf_distance_total = 0
     bf_predecessor_total = 0
     bfs_state_total = 0
@@ -170,290 +169,235 @@ def calculate_losses_and_accuracies(model, graph_data, embedding_dim=128):
     num_nodes = graph_data['num_nodes']
     previous_step_hidden_states = mx.zeros([num_nodes, embedding_dim])
 
-    num_bf_steps = len(graph_data['bf_distance_targets'])
+    num_bf_steps  = len(graph_data['bf_distance_targets'])
     num_bfs_steps = len(graph_data['bfs_state_targets'])
+    num_steps     = max(num_bf_steps, num_bfs_steps)
 
-    num_steps = max(num_bf_steps, num_bfs_steps)
-    
-    # Loss accumulators for auxiliary losses
-    bf_distance_loss_acc = mx.array(0.0)
-    bf_predecessor_loss_acc = mx.array(0.0)
-    bfs_state_loss_acc = mx.array(0.0)
-    bf_termination_loss_acc = mx.array(0.0)
+    # loss accumulators
+    bf_distance_loss_acc     = mx.array(0.0)
+    bf_predecessor_loss_acc  = mx.array(0.0)
+    bfs_state_loss_acc       = mx.array(0.0)
+    bf_termination_loss_acc  = mx.array(0.0)
     bfs_termination_loss_acc = mx.array(0.0)
-    
-    steps_executed = 0
-    bf_steps_executed = 0
-    bfs_steps_executed = 0
-    
-    for i in range(num_steps):
-        # Check if samples exist
-        bf_sample_exists = i < num_bf_steps and (i + 1) < num_bf_steps
-        bfs_sample_exists = i < num_bfs_steps and (i + 1) < num_bfs_steps
 
-        # If neither sample exists, skip this step
+    steps_executed   = 0
+    bf_steps_exec    = 0
+    bfs_steps_exec   = 0
+
+    for i in range(num_steps):
+        bf_sample_exists  = (i + 1) < num_bf_steps
+        bfs_sample_exists = (i + 1) < num_bfs_steps
         if not (bf_sample_exists or bfs_sample_exists):
             continue
 
-        if bf_sample_exists:
-            bf_steps_executed += 1
-        if bfs_sample_exists:
-            bfs_steps_executed += 1
         steps_executed += 1
+        if bf_sample_exists:  bf_steps_exec  += 1
+        if bfs_sample_exists: bfs_steps_exec += 1
 
-        # Prepare data for current step
         if bfs_sample_exists:
-            true_bfs_state = graph_data['bfs_state_targets'][i]
-            target_bfs_state = graph_data['bfs_state_targets'][i+1]
+            true_bfs_state   = graph_data['bfs_state_targets'][i]
+            target_bfs_state = graph_data['bfs_state_targets'][i + 1]
         else:
-            true_bfs_state = graph_data['bfs_state_targets'][-1]
+            true_bfs_state   = graph_data['bfs_state_targets'][-1]
             target_bfs_state = graph_data['bfs_state_targets'][-1]
 
         if bf_sample_exists:
-            true_distance_bf = graph_data['bf_distance_targets'][i]
-            true_predecessor_bf = graph_data['bf_predecessor_targets'][i]
-            target_distance_bf = graph_data['bf_distance_targets'][i+1]
-            target_predecessor_bf = graph_data['bf_predecessor_targets'][i+1]
+            true_distance_bf   = graph_data['bf_distance_targets'][i]       # normalized
+            target_distance_bf = graph_data['bf_distance_targets'][i + 1]   # normalized
+            target_predecessor = graph_data['bf_predecessor_targets'][i + 1]  # -1 = undefined
         else:
-            true_distance_bf = graph_data['bf_distance_targets'][-1]
-            true_predecessor_bf = graph_data['bf_predecessor_targets'][-1]
+            true_distance_bf   = graph_data['bf_distance_targets'][-1]
             target_distance_bf = graph_data['bf_distance_targets'][-1]
-            target_predecessor_bf = graph_data['bf_predecessor_targets'][-1]
+            target_predecessor = graph_data['bf_predecessor_targets'][-1]
 
-        # Generate termination targets
-        is_last_bf_step = (i + 1) == (num_bf_steps - 1)
+        is_last_bf_step  = (i + 1) == (num_bf_steps  - 1)
         is_last_bfs_step = (i + 1) == (num_bfs_steps - 1)
         termination_targets = {
-            'bf': mx.array(1.0 if is_last_bf_step else 0.0),
-            'bfs': mx.array(1.0 if is_last_bfs_step else 0.0)
+            'bf' : mx.array(1.0 if is_last_bf_step  else 0.0),
+            'bfs': mx.array(1.0 if is_last_bfs_step else 0.0),
         }
 
-        # Prepare model inputs
         node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf]).reshape([-1, 2])
-        input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
-        model_input = (input_embeddings, graph_data['edge_matrix'])
+        input_embeddings   = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
+        model_input        = (input_embeddings, graph_data['edge_matrix'])
 
-        # Forward pass
-        bfs_output, bf_output, termination_probs, processed_embeddings = model(model_input)
+        bfs_output, bf_output, termination_logits, processed_embeddings = model(model_input)
 
-        # Compute losses and accuracies
+        # ----- losses + accuracies -----
         if bf_sample_exists:
-            bf_distance_predictions, bf_predecessor_predictions = bf_output
-            
-            # Losses
-            bf_distance_loss = nn.losses.mse_loss(bf_distance_predictions, target_distance_bf, reduction='mean')
-            # Masked cross-entropy for predecessor targets >= 0
-            pred_mask = (target_predecessor_bf >= 0).astype(mx.float32)
-            safe_targets = mx.where(pred_mask > 0, target_predecessor_bf, mx.zeros_like(target_predecessor_bf))
-            ce_per_node = nn.losses.cross_entropy(bf_predecessor_predictions, safe_targets, reduction='none')
-            mask_sum = mx.maximum(mx.sum(pred_mask), 1.0)
-            bf_predecessor_loss = (mx.sum(ce_per_node * pred_mask) / mask_sum)
-            bf_termination_loss = nn.losses.binary_cross_entropy(termination_probs['bf'], termination_targets['bf'], reduction='mean', with_logits=True)
-            
-            bf_distance_loss_acc += bf_distance_loss
-            bf_predecessor_loss_acc += bf_predecessor_loss
-            bf_termination_loss_acc += bf_termination_loss
-            
-            # Accuracies
-            # BF Distance: correct if within 10% relative error or within 0.1 absolute error (for small values)
-            distance_errors = mx.abs(bf_distance_predictions - target_distance_bf)
-            relative_tolerance = 0.1 * mx.maximum(mx.abs(target_distance_bf), mx.array(1.0))  # minimum tolerance of 0.1
-            absolute_tolerance = mx.array(0.1)
-            distance_correct_mask = (distance_errors <= mx.maximum(relative_tolerance, absolute_tolerance))
-            bf_distance_correct += mx.sum(distance_correct_mask).item()
-            bf_distance_total += len(target_distance_bf)
-            
-            # BF Predecessor: correct if argmax matches target, only for valid targets
-            pred_predecessors = mx.argmax(bf_predecessor_predictions, axis=-1)
-            correct_mask = ((pred_predecessors == target_predecessor_bf).astype(mx.float32) * pred_mask)
-            bf_predecessor_correct += mx.sum(correct_mask).item()
-            bf_predecessor_total += int(mx.sum(pred_mask).item())
-            
-            # BF Termination: correct if (logit > 0.0) matches target
-            bf_term_pred = (termination_probs['bf'] > 0.0).astype(mx.float32)
-            bf_termination_correct += int(bf_term_pred.item() == termination_targets['bf'].item())
-            bf_termination_total += 1
+            bf_distance_pred, bf_pred_logits = bf_output
 
+            # distance loss (normalized)
+            bf_dist_loss = nn.losses.mse_loss(bf_distance_pred, target_distance_bf, reduction='mean')
+            bf_distance_loss_acc += bf_dist_loss
+
+            # distance accuracy (tolerance on normalized scale)
+            err = mx.abs(bf_distance_pred - target_distance_bf)
+            tol = mx.array(0.1, dtype=err.dtype)  # 0.1 on [0,1] scale
+            correct_mask = (err <= tol)
+            bf_distance_correct += mx.sum(correct_mask).item()
+            bf_distance_total   += len(target_distance_bf)
+
+            # predecessor masked CE
+            valid_mask   = (target_predecessor != -1)
+            safe_targets = mx.where(valid_mask, target_predecessor, mx.zeros_like(target_predecessor))
+            ce_per_node  = nn.losses.cross_entropy(bf_pred_logits, safe_targets, reduction='none')
+            denom        = mx.maximum(valid_mask.astype(mx.float32).sum(), mx.array(1.0))
+            bf_pred_loss = (ce_per_node * valid_mask.astype(mx.float32)).sum() / denom
+            bf_predecessor_loss_acc += bf_pred_loss
+
+            # predecessor accuracy (only valid)
+            pred_argmax = mx.argmax(bf_pred_logits, axis=-1)
+            bf_predecessor_correct += mx.sum((pred_argmax == target_predecessor) * valid_mask).item()
+            bf_predecessor_total   += int(mx.sum(valid_mask).item())
+
+            # termination (logits in, with_logits=True; threshold at 0 for accuracy)
+            bf_term_loss = nn.losses.binary_cross_entropy(
+                termination_logits['bf'], termination_targets['bf'], reduction='mean', with_logits=True
+            )
+            bf_termination_loss_acc += bf_term_loss
+            bf_term_pred = (termination_logits['bf'] > 0.0).astype(mx.float32)
+            bf_termination_correct += int(bf_term_pred.item() == termination_targets['bf'].item())
+            bf_termination_total   += 1
         else:
-            bf_distance_loss = mx.array(0.0)
-            bf_predecessor_loss = mx.array(0.0)
-            bf_termination_loss = mx.array(0.0)
+            bf_dist_loss = mx.array(0.0)
+            bf_pred_loss = mx.array(0.0)
+            bf_term_loss = mx.array(0.0)
 
         if bfs_sample_exists:
-            # Losses
-            bfs_state_loss = nn.losses.binary_cross_entropy(bfs_output, target_bfs_state, reduction='mean', with_logits=True)
-            bfs_termination_loss = nn.losses.binary_cross_entropy(termination_probs['bfs'], termination_targets['bfs'], reduction='mean', with_logits=True)
-            
-            bfs_state_loss_acc += bfs_state_loss
+            bfs_state_loss = nn.losses.binary_cross_entropy(
+                bfs_output, target_bfs_state, reduction='mean', with_logits=True
+            )
+            bfs_termination_loss = nn.losses.binary_cross_entropy(
+                termination_logits['bfs'], termination_targets['bfs'], reduction='mean', with_logits=True
+            )
+            bfs_state_loss_acc       += bfs_state_loss
             bfs_termination_loss_acc += bfs_termination_loss
-            
-            # Accuracies
-            # BFS State: correct if sigmoid(logit) > 0.5 matches binary target
-            bfs_probs = mx.sigmoid(bfs_output)
-            bfs_pred = (bfs_probs > 0.5).astype(mx.float32)
-            bfs_state_correct += mx.sum(bfs_pred == target_bfs_state).item()
-            bfs_state_total += len(target_bfs_state)
-            
-            # BFS Termination: correct if sigmoid(logit) > 0.5 matches target  
-            bfs_term_prob = mx.sigmoid(termination_probs['bfs'])
-            bfs_term_pred = (bfs_term_prob > 0.5).astype(mx.float32)
+
+            # accuracies: logits threshold at 0
+            bfs_state_pred = (bfs_output > 0.0).astype(mx.float32)
+            bfs_state_correct += mx.sum(bfs_state_pred == target_bfs_state).item()
+            bfs_state_total   += len(target_bfs_state)
+
+            bfs_term_pred = (termination_logits['bfs'] > 0.0).astype(mx.float32)
             bfs_termination_correct += int(bfs_term_pred.item() == termination_targets['bfs'].item())
-            bfs_termination_total += 1
-            
+            bfs_termination_total   += 1
         else:
             bfs_state_loss = mx.array(0.0)
             bfs_termination_loss = mx.array(0.0)
 
-        total_step_loss = bf_distance_loss + bf_predecessor_loss + bfs_state_loss + bf_termination_loss + bfs_termination_loss
-
-        # Update for next step
-        previous_step_hidden_states = processed_embeddings
+        total_step_loss = bf_dist_loss + bf_pred_loss + bfs_state_loss + bf_term_loss + bfs_termination_loss
         accumulated_loss += total_step_loss
 
-    # Calculate average losses
+        previous_step_hidden_states = processed_embeddings
+
+    # averages per task over their executed steps (avoid div by 0)
     if steps_executed > 0:
-        average_loss = accumulated_loss / steps_executed
-        avg_bf_distance_loss    = bf_distance_loss_acc    / max(bf_steps_executed, 1)
-        avg_bf_predecessor_loss = bf_predecessor_loss_acc / max(bf_steps_executed, 1)
-        avg_bf_termination_loss = bf_termination_loss_acc / max(bf_steps_executed, 1)
-        avg_bfs_state_loss      = bfs_state_loss_acc      / max(bfs_steps_executed, 1)
-        avg_bfs_termination_loss= bfs_termination_loss_acc/ max(bfs_steps_executed, 1)
+        avg_total_loss = accumulated_loss / steps_executed
+        avg_bf_dist    = bf_distance_loss_acc     / max(bf_steps_exec, 1)
+        avg_bf_pred    = bf_predecessor_loss_acc  / max(bf_steps_exec, 1)
+        avg_bfs_state  = bfs_state_loss_acc       / max(bfs_steps_exec, 1)
+        avg_bf_term    = bf_termination_loss_acc  / max(bf_steps_exec, 1)
+        avg_bfs_term   = bfs_termination_loss_acc / max(bfs_steps_exec, 1)
     else:
-        average_loss = mx.array(0.0)
-        avg_bf_distance_loss = mx.array(0.0)
-        avg_bf_predecessor_loss = mx.array(0.0)
-        avg_bfs_state_loss = mx.array(0.0)
-        avg_bf_termination_loss = mx.array(0.0)
-        avg_bfs_termination_loss = mx.array(0.0)
+        avg_total_loss = mx.array(0.0)
+        avg_bf_dist = avg_bf_pred = avg_bfs_state = avg_bf_term = avg_bfs_term = mx.array(0.0)
 
-    # Calculate accuracies (avoiding division by zero)
-    bf_distance_acc = bf_distance_correct / bf_distance_total if bf_distance_total > 0 else 0.0
-    bf_predecessor_acc = bf_predecessor_correct / bf_predecessor_total if bf_predecessor_total > 0 else 0.0
-    bfs_state_acc = bfs_state_correct / bfs_state_total if bfs_state_total > 0 else 0.0
-    bf_termination_acc = bf_termination_correct / bf_termination_total if bf_termination_total > 0 else 0.0
-    bfs_termination_acc = bfs_termination_correct / bfs_termination_total if bfs_termination_total > 0 else 0.0
+    # accuracies with masking
+    bf_distance_acc   = bf_distance_correct   / bf_distance_total   if bf_distance_total   > 0 else 0.0
+    bf_predecessor_acc= bf_predecessor_correct/ bf_predecessor_total if bf_predecessor_total> 0 else 0.0
+    bfs_state_acc     = bfs_state_correct     / bfs_state_total     if bfs_state_total     > 0 else 0.0
+    bf_termination_acc= bf_termination_correct/ bf_termination_total if bf_termination_total> 0 else 0.0
+    bfs_termination_acc= bfs_termination_correct/ bfs_termination_total if bfs_termination_total> 0 else 0.0
 
-    aux_losses = mx.array([avg_bf_distance_loss, avg_bf_predecessor_loss, avg_bfs_state_loss, avg_bf_termination_loss, avg_bfs_termination_loss])
-    accuracies = mx.array([bf_distance_acc, bf_predecessor_acc, bfs_state_acc, bf_termination_acc, bfs_termination_acc])
+    aux_losses  = mx.array([avg_bf_dist, avg_bf_pred, avg_bfs_state, avg_bf_term, avg_bfs_term])
+    accuracies  = mx.array([bf_distance_acc, bf_predecessor_acc, bfs_state_acc, bf_termination_acc, bfs_termination_acc])
 
-    return aux_losses, average_loss, accuracies
+    return aux_losses, avg_total_loss, accuracies
 
 def calculate_accuracies(model, graph_data, embedding_dim=128):
-    """
-    Function that calculates only accuracies in a single forward pass.
-    Returns: accuracies array [bf_distance_acc, bf_predecessor_acc, bfs_state_acc, bf_termination_acc, bfs_termination_acc]
-    """
-    # Accuracy counters
-    bf_distance_correct = 0
-    bf_predecessor_correct = 0
-    bfs_state_correct = 0
-    bf_termination_correct = 0
-    bfs_termination_correct = 0
-    
-    # Total sample counters for accurate percentage calculation
-    bf_distance_total = 0
-    bf_predecessor_total = 0
-    bfs_state_total = 0
-    bf_termination_total = 0
-    bfs_termination_total = 0
+    bf_distance_correct = bf_predecessor_correct = 0
+    bfs_state_correct = bf_termination_correct = bfs_termination_correct = 0
+    bf_distance_total = bf_predecessor_total = bfs_state_total = bf_termination_total = bfs_termination_total = 0
 
     num_nodes = graph_data['num_nodes']
     previous_step_hidden_states = mx.zeros([num_nodes, embedding_dim])
 
-    num_bf_steps = len(graph_data['bf_distance_targets'])
+    num_bf_steps  = len(graph_data['bf_distance_targets'])
     num_bfs_steps = len(graph_data['bfs_state_targets'])
+    num_steps     = max(num_bf_steps, num_bfs_steps)
 
-    num_steps = max(num_bf_steps, num_bfs_steps)
-    
     for i in range(num_steps):
-        # Check if samples exist
-        bf_sample_exists = i < num_bf_steps and (i + 1) < num_bf_steps
-        bfs_sample_exists = i < num_bfs_steps and (i + 1) < num_bfs_steps
-
-        # If neither sample exists, skip this step
+        bf_sample_exists  = (i + 1) < num_bf_steps
+        bfs_sample_exists = (i + 1) < num_bfs_steps
         if not (bf_sample_exists or bfs_sample_exists):
             continue
 
-        # Prepare data for current step
         if bfs_sample_exists:
-            true_bfs_state = graph_data['bfs_state_targets'][i]
-            target_bfs_state = graph_data['bfs_state_targets'][i+1]
+            true_bfs_state   = graph_data['bfs_state_targets'][i]
+            target_bfs_state = graph_data['bfs_state_targets'][i + 1]
         else:
-            true_bfs_state = graph_data['bfs_state_targets'][-1]
+            true_bfs_state   = graph_data['bfs_state_targets'][-1]
             target_bfs_state = graph_data['bfs_state_targets'][-1]
 
         if bf_sample_exists:
-            true_distance_bf = graph_data['bf_distance_targets'][i]
-            true_predecessor_bf = graph_data['bf_predecessor_targets'][i]
-            target_distance_bf = graph_data['bf_distance_targets'][i+1]
-            target_predecessor_bf = graph_data['bf_predecessor_targets'][i+1]
+            true_distance_bf   = graph_data['bf_distance_targets'][i]       # normalized
+            target_distance_bf = graph_data['bf_distance_targets'][i + 1]   # normalized
+            target_predecessor = graph_data['bf_predecessor_targets'][i + 1]
         else:
-            true_distance_bf = graph_data['bf_distance_targets'][-1]
-            true_predecessor_bf = graph_data['bf_predecessor_targets'][-1]
+            true_distance_bf   = graph_data['bf_distance_targets'][-1]
             target_distance_bf = graph_data['bf_distance_targets'][-1]
-            target_predecessor_bf = graph_data['bf_predecessor_targets'][-1]
+            target_predecessor = graph_data['bf_predecessor_targets'][-1]
 
-        # Generate termination targets
-        is_last_bf_step = (i + 1) == (num_bf_steps - 1)
+        is_last_bf_step  = (i + 1) == (num_bf_steps  - 1)
         is_last_bfs_step = (i + 1) == (num_bfs_steps - 1)
         termination_targets = {
-            'bf': mx.array(1.0 if is_last_bf_step else 0.0),
-            'bfs': mx.array(1.0 if is_last_bfs_step else 0.0)
+            'bf' : mx.array(1.0 if is_last_bf_step  else 0.0),
+            'bfs': mx.array(1.0 if is_last_bfs_step else 0.0),
         }
 
-        # Prepare model inputs
         node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf]).reshape([-1, 2])
-        input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
-        model_input = (input_embeddings, graph_data['edge_matrix'])
+        input_embeddings   = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
+        model_input        = (input_embeddings, graph_data['edge_matrix'])
 
-        # Forward pass
-        bfs_output, bf_output, termination_probs, processed_embeddings = model(model_input)
+        bfs_output, bf_output, termination_logits, processed_embeddings = model(model_input)
 
-        # Compute accuracies only
         if bf_sample_exists:
-            bf_distance_predictions, bf_predecessor_predictions = bf_output
-            
-            # BF Distance: correct if within 10% relative error or within 0.1 absolute error (for small values)
-            distance_errors = mx.abs(bf_distance_predictions - target_distance_bf)
-            relative_tolerance = 0.1 * mx.maximum(mx.abs(target_distance_bf), mx.array(1.0))  # minimum tolerance of 0.1
-            absolute_tolerance = mx.array(0.1)
-            distance_correct_mask = (distance_errors <= mx.maximum(relative_tolerance, absolute_tolerance))
-            bf_distance_correct += mx.sum(distance_correct_mask).item()
-            bf_distance_total += len(target_distance_bf)
-            
-            # BF Predecessor: correct if argmax matches target
-            pred_predecessors = mx.argmax(bf_predecessor_predictions, axis=-1)
-            bf_predecessor_correct += mx.sum(pred_predecessors == target_predecessor_bf).item()
-            bf_predecessor_total += len(target_predecessor_bf)
-            
-            # BF Termination: correct if (prediction > 0.5) matches target
-            bf_term_pred = (termination_probs['bf'] > 0.5).astype(mx.float32)
+            bf_distance_pred, bf_pred_logits = bf_output
+
+            # distance accuracy on normalized scale (tolerance 0.1)
+            err = mx.abs(bf_distance_pred - target_distance_bf)
+            tol = mx.array(0.1, dtype=err.dtype)
+            bf_distance_correct += mx.sum(err <= tol).item()
+            bf_distance_total   += len(target_distance_bf)
+
+            # predecessor accuracy with masking
+            valid_mask = (target_predecessor != -1)
+            argmax_pred = mx.argmax(bf_pred_logits, axis=-1)
+            bf_predecessor_correct += mx.sum((argmax_pred == target_predecessor) * valid_mask).item()
+            bf_predecessor_total   += int(mx.sum(valid_mask).item())
+
+            # termination accuracy: threshold at 0 on logits
+            bf_term_pred = (termination_logits['bf'] > 0.0).astype(mx.float32)
             bf_termination_correct += int(bf_term_pred.item() == termination_targets['bf'].item())
-            bf_termination_total += 1
+            bf_termination_total   += 1
 
         if bfs_sample_exists:
-            # BFS State: correct if sigmoid(logit) > 0.5 matches binary target
-            bfs_probs = mx.sigmoid(bfs_output)
-            bfs_pred = (bfs_probs > 0.5).astype(mx.float32)
+            # BFS state: logits threshold at 0
+            bfs_pred = (bfs_output > 0.0).astype(mx.float32)
             bfs_state_correct += mx.sum(bfs_pred == target_bfs_state).item()
-            bfs_state_total += len(target_bfs_state)
-            
-            # BFS Termination: correct if sigmoid(logit) > 0.5 matches target  
-            bfs_term_prob = mx.sigmoid(termination_probs['bfs'])
-            bfs_term_pred = (bfs_term_prob > 0.5).astype(mx.float32)
-            bfs_termination_correct += int(bfs_term_pred.item() == termination_targets['bfs'].item())
-            bfs_termination_total += 1
+            bfs_state_total   += len(target_bfs_state)
 
-        # Update for next step
+            bfs_term_pred = (termination_logits['bfs'] > 0.0).astype(mx.float32)
+            bfs_termination_correct += int(bfs_term_pred.item() == termination_targets['bfs'].item())
+            bfs_termination_total   += 1
+
         previous_step_hidden_states = processed_embeddings
 
-    # Calculate accuracies (avoiding division by zero)
-    bf_distance_acc = bf_distance_correct / bf_distance_total if bf_distance_total > 0 else 0.0
-    bf_predecessor_acc = bf_predecessor_correct / bf_predecessor_total if bf_predecessor_total > 0 else 0.0
-    bfs_state_acc = bfs_state_correct / bfs_state_total if bfs_state_total > 0 else 0.0
-    bf_termination_acc = bf_termination_correct / bf_termination_total if bf_termination_total > 0 else 0.0
+    bf_distance_acc     = bf_distance_correct     / bf_distance_total     if bf_distance_total     > 0 else 0.0
+    bf_predecessor_acc  = bf_predecessor_correct  / bf_predecessor_total  if bf_predecessor_total  > 0 else 0.0
+    bfs_state_acc       = bfs_state_correct       / bfs_state_total       if bfs_state_total       > 0 else 0.0
+    bf_termination_acc  = bf_termination_correct  / bf_termination_total  if bf_termination_total  > 0 else 0.0
     bfs_termination_acc = bfs_termination_correct / bfs_termination_total if bfs_termination_total > 0 else 0.0
 
-    accuracies = mx.array([bf_distance_acc, bf_predecessor_acc, bfs_state_acc, bf_termination_acc, bfs_termination_acc])
-
-    return accuracies
+    return mx.array([bf_distance_acc, bf_predecessor_acc, bfs_state_acc, bf_termination_acc, bfs_termination_acc])
