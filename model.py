@@ -113,12 +113,14 @@ class bfs_decoder(nn.Module):
         super(bfs_decoder, self).__init__()
 
         self.embed_dim = embed_dim
-        self.bfs_state_outputs = nn.Linear(embed_dim, 1, bias=False)
+        self.bfs_state_outputs = nn.Linear(embed_dim * 2, 1, bias=False)
 
     def __call__(self, data):
-        node_embeddings, _ = data
+        processed_embeddings, encoded_embeddings = data
+        
+        input = mx.concatenate([processed_embeddings, encoded_embeddings], axis=1)
 
-        bfs_state_predictions = self.bfs_state_outputs(node_embeddings)
+        bfs_state_predictions = self.bfs_state_outputs(input)
         bfs_state_predictions = bfs_state_predictions.squeeze()
 
         return bfs_state_predictions
@@ -132,25 +134,26 @@ class bf_decoder(nn.Module):
 
         self.embed_dim = embed_dim
         
-        self.bf_distance_outputs = nn.Linear(embed_dim, 1, bias=False)
+        self.bf_distance_outputs = nn.Linear(2 * embed_dim, 1, bias=False)
         
-        self.bf_predecessor_head = nn.Linear(2 * embed_dim, 1)
+        self.bf_predecessor_head = nn.Linear(4 * embed_dim + 2, 1)
 
     def __call__(self, data):
-        node_embeddings, connection_matrix = data
+        processed_embeddings, encoded_embeddings, connection_matrix = data
+        
+        input = mx.concatenate([processed_embeddings, encoded_embeddings], axis=1)
 
-        num_nodes = node_embeddings.shape[0]
+        num_nodes = processed_embeddings.shape[0]
 
         source_idx = connection_matrix[self.source_idx].astype(mx.int32)
         target_idx = connection_matrix[self.target_idx].astype(mx.int32)
 
-        bf_distance_predictions = self.bf_distance_outputs(node_embeddings)
-        
-        # bf_distance_predictions = nn.relu(bf_distance_predictions) + 1e-6
-        bf_distance_predictions = bf_distance_predictions.squeeze()
+        bf_distance_predictions = self.bf_distance_outputs(input)
 
-        source_embeddings = mx.take(node_embeddings, source_idx, axis=0)
-        target_embeddings = mx.take(node_embeddings, target_idx, axis=0)
+        joint_embeddings = mx.concatenate([processed_embeddings, encoded_embeddings, bf_distance_predictions], axis=1)
+
+        source_embeddings = mx.take(joint_embeddings, source_idx, axis=0)
+        target_embeddings = mx.take(joint_embeddings, target_idx, axis=0)
         
         concatenated_embeddings = mx.concat([source_embeddings, target_embeddings], axis=1)
         edge_features = self.bf_predecessor_head(concatenated_embeddings).squeeze()
@@ -161,7 +164,7 @@ class bf_decoder(nn.Module):
         
         #bf_predecessor_predictions = nn.softmax(bf_predecessor_predictions, axis=1)
         
-        return bf_distance_predictions, bf_predecessor_predictions
+        return bf_distance_predictions.squeeze(), bf_predecessor_predictions
     
 class nge(nn.Module):
     def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum, num_mp_layers: int, dropout: float = 0.0):
@@ -184,8 +187,8 @@ class nge(nn.Module):
         
         processed_embeddings = self.processor((encoded_embeddings, connection_matrix))
         
-        bfs_output = self.bfs_decoder((processed_embeddings, connection_matrix))
-        bf_output = self.bf_decoder((processed_embeddings, connection_matrix))
+        bfs_output = self.bfs_decoder((processed_embeddings, encoded_embeddings))
+        bf_output = self.bf_decoder((processed_embeddings, encoded_embeddings, connection_matrix))
 
         avg_embeddings = mx.mean(processed_embeddings, axis=0)
 
