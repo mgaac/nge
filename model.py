@@ -136,27 +136,37 @@ class bf_decoder(nn.Module):
         
         self.bf_distance_outputs = nn.Linear(2 * embed_dim, 1, bias=False)
         
-        self.bf_predecessor_head = nn.Linear(4 * embed_dim + 2, 1)
+        self.bf_predecessor_head_0 = nn.Linear(4 * embed_dim + 2, 4 * embed_dim + 2)
+        self.bf_predecessor_head_1 = nn.Linear(4 * embed_dim + 2, 1)
+        
+        self.distance_head_ln = nn.LayerNorm(2 * embed_dim)
+        self.predecessor_head_ln = nn.LayerNorm(4 * embed_dim + 2)
 
     def __call__(self, data):
         processed_embeddings, encoded_embeddings, connection_matrix = data
         
         input = mx.concatenate([processed_embeddings, encoded_embeddings], axis=1)
+        input = self.distance_head_ln(input)
 
+        bf_distance_predictions = self.bf_distance_outputs(input)
+        
         num_nodes = processed_embeddings.shape[0]
 
         source_idx = connection_matrix[self.source_idx].astype(mx.int32)
         target_idx = connection_matrix[self.target_idx].astype(mx.int32)
 
-        bf_distance_predictions = self.bf_distance_outputs(input)
+        no_grad_distance_predictions = mx.stop_gradient(bf_distance_predictions)
 
-        joint_embeddings = mx.concatenate([processed_embeddings, encoded_embeddings, bf_distance_predictions], axis=1)
+        joint_embeddings = mx.concatenate([processed_embeddings, encoded_embeddings, no_grad_distance_predictions], axis=1)
 
         source_embeddings = mx.take(joint_embeddings, source_idx, axis=0)
         target_embeddings = mx.take(joint_embeddings, target_idx, axis=0)
         
         concatenated_embeddings = mx.concat([source_embeddings, target_embeddings], axis=1)
-        edge_features = self.bf_predecessor_head(concatenated_embeddings).squeeze()
+        concatenated_embeddings = self.predecessor_head_ln(concatenated_embeddings)
+
+        edge_features = nn.relu(self.bf_predecessor_head_0(concatenated_embeddings))
+        edge_features = self.bf_predecessor_head_1(concatenated_embeddings).squeeze()
 
         bf_predecessor_predictions = mx.full([num_nodes, num_nodes], -1e6)
         

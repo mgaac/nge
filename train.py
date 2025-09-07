@@ -8,7 +8,7 @@ import wandb
 
 from model import nge, aggregation_fn
 from data.data import load_dataset
-from utils import print_execution_details, calculate_accuracies, calculate_losses_and_accuracies
+from utils import print_execution_details, calculate_losses_and_accuracies
 
 mx.random.seed(42)
 
@@ -22,9 +22,9 @@ MODEL_CONFIG = {
 
 HYPERPARAMETERS = {
     'epochs': 2000,
-    'start_lr':1e-6,
-    'end_lr': 1e-6,
-    'decay_ratio': .01,
+    'start_lr':1e-5,
+    'end_lr': 1e-5,
+    'decay_ratio': .1,
     'max_grad_norm': 1.0,
     'batch_size' : 5,
 }
@@ -267,7 +267,7 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
             _, norm  = print_execution_details(model, train_dataset[random_idx], MODEL_CONFIG['embed_dim'])
             wandb.log({"debug/hidden_state_norm": float(norm)})
 
-total_steps = HYPERPARAMETERS['epochs'] * len(train_dataset)
+total_steps = HYPERPARAMETERS['epochs'] * (len(train_dataset) / HYPERPARAMETERS['batch_size'])
 decay_steps = int(total_steps * HYPERPARAMETERS['decay_ratio'])
 
 lr_decay = optim.cosine_decay(
@@ -276,7 +276,7 @@ lr_decay = optim.cosine_decay(
     end=HYPERPARAMETERS['end_lr']
 )
 
-optimizer = optim.Adam(learning_rate=HYPERPARAMETERS['end_lr'])
+optimizer = optim.Adam(learning_rate=lr_decay)
 
 train_model(model, train_dataset, optimizer, epochs=HYPERPARAMETERS['epochs'], batch_size=HYPERPARAMETERS['batch_size']) 
 test_aux_losses, test_loss, test_accuracies = evaluate_model(model, test_dataset)
