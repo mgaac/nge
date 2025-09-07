@@ -161,26 +161,18 @@ def bellman_ford_log(
 
 
 def clean_bf_logs(log: List[List[float]] | List[List[int | None]]) -> mx.array:
-    """
-    Paper-aligned cleaning:
-      - Distances: per-graph normalization (∞ -> S = max_finite+1, then /S) ⇒ unreachable = 1.0
-      - Predecessors: None -> node index (self), so targets are always in [0..N-1]
-    """
     if not log or not log[-1]:
         return mx.array(log)
 
-    # Distance vs predecessor?
     is_distance = isinstance(log[0][0], float)
 
     if is_distance:
         final = log[-1]
         finite = [x for x in final if x != float('inf')]
-        # Scale S; if all are inf (degenerate), choose 1.0 to avoid div-by-zero
         S = (max(finite) + 1.0) if finite else 1.0
 
         norm_log = []
         for state in log:
-            # map inf -> S, then divide by S
             state_norm = [((S if x == float('inf') else x) / S) for x in state]
             norm_log.append(state_norm)
         return mx.array(norm_log, dtype=mx.float32)
@@ -191,6 +183,7 @@ def clean_bf_logs(log: List[List[float]] | List[List[int | None]]) -> mx.array:
         for state in log:
             cleaned_state = [(i if x is None else x) for i, x in enumerate(state)]
             cleaned.append(cleaned_state)
+        return mx.array(cleaned, dtype=mx.int32)   # <-- add this line
 
 
 def bfs_log(

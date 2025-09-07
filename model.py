@@ -24,9 +24,9 @@ class mp_layer(nn.Module):
         self.source_message_fn = nn.Linear(embed_dim, embed_dim, bias=False)
         self.target_message_fn = nn.Linear(embed_dim, embed_dim, bias=False)
 
-        self.layer_norm = nn.LayerNorm(embed_dim)
+        self.layer_norm = nn.LayerNorm(3 * embed_dim + 1)
 
-        self.update_fn = nn.Linear(embed_dim, embed_dim)
+        self.update_fn = nn.Linear(3 * embed_dim + 1, embed_dim)
         
         self.dropout = nn.Dropout(p=dropout)
 
@@ -45,36 +45,35 @@ class mp_layer(nn.Module):
         filtered_source_embeddings = mx.take(source_embeddings, source_idx, axis=0)
         filtered_target_embeddings = mx.take(target_embeddings, target_idx, axis=0)
 
-        message = filtered_source_embeddings + filtered_target_embeddings
-
-        message = message * edge_weights
-
-        message = nn.relu(message)
+        message = mx.concatenate([filtered_source_embeddings, filtered_target_embeddings, edge_weights], axis=1)
         
         message = self.dropout(message)
     
+        message_dim = 2 * self.embed_dim + 1  # source + target + edge_weight
+        
         if (self.agg_fn == aggregation_fn.SUM):
-            agg_message = mx.zeros([num_nodes, self.embed_dim])
+            agg_message = mx.zeros([num_nodes, message_dim])
             agg_message = agg_message.at[target_idx].add(message)
 
         elif (self.agg_fn == aggregation_fn.AVG):
-            agg_message = mx.zeros([num_nodes, self.embed_dim])
+            agg_message = mx.zeros([num_nodes, message_dim])
             agg_message = agg_message.at[target_idx].add(message)
             denominator = mx.zeros([num_nodes, 1]).at[target_idx].add(1)
             agg_message = agg_message / mx.maximum(denominator, 1e-9)
 
         elif (self.agg_fn == aggregation_fn.MAX):
-            agg_message = mx.full([num_nodes, self.embed_dim], -1e3)
+            agg_message = mx.full([num_nodes, message_dim], -1e3)
             agg_message = agg_message.at[target_idx].maximum(message)
             has_incoming = mx.zeros([num_nodes, 1]).at[target_idx].add(1) > 0
             agg_message = mx.where(has_incoming, agg_message, mx.zeros_like(agg_message))
 
         elif (self.agg_fn == aggregation_fn.MIN):
-            agg_message = mx.full([num_nodes, self.embed_dim], 1e3)
+            agg_message = mx.full([num_nodes, message_dim], 1e3)
             agg_message = agg_message.at[target_idx].minimum(message)
             has_incoming = mx.zeros([num_nodes, 1]).at[target_idx].add(1) > 0
             agg_message = mx.where(has_incoming, agg_message, mx.zeros_like(agg_message))
 
+        agg_message = mx.concatenate([agg_message, node_embeddings], axis=1) 
         agg_message = self.layer_norm(agg_message)
 
         new_node_embeddings = self.update_fn(agg_message)
@@ -134,13 +133,12 @@ class bf_decoder(nn.Module):
 
         self.embed_dim = embed_dim
         
-        self.bf_distance_outputs = nn.Linear(2 * embed_dim, 1, bias=False)
-        
-        self.bf_predecessor_head_0 = nn.Linear(4 * embed_dim + 2, 4 * embed_dim + 2)
-        self.bf_predecessor_head_1 = nn.Linear(4 * embed_dim + 2, 1)
+        self.bf_distance_outputs = nn.Linear(2 * embed_dim, 1)
+        self.bf_predecessor_head = nn.Linear(4 * embed_dim + 1, 1)
         
         self.distance_head_ln = nn.LayerNorm(2 * embed_dim)
-        self.predecessor_head_ln = nn.LayerNorm(4 * embed_dim + 2)
+        self.predecessor_head_ln_joint = nn.LayerNorm(2 * embed_dim)
+        self.predecessor_head_ln_conca = nn.LayerNorm(4 * embed_dim + 1)
 
     def __call__(self, data):
         processed_embeddings, encoded_embeddings, connection_matrix = data
@@ -148,33 +146,32 @@ class bf_decoder(nn.Module):
         input = mx.concatenate([processed_embeddings, encoded_embeddings], axis=1)
         input = self.distance_head_ln(input)
 
-        bf_distance_predictions = self.bf_distance_outputs(input)
-        
-        num_nodes = processed_embeddings.shape[0]
-
+        bf_distance_predictions = self.bf_distance_outputs(input).squeeze()
+    
         source_idx = connection_matrix[self.source_idx].astype(mx.int32)
         target_idx = connection_matrix[self.target_idx].astype(mx.int32)
 
-        no_grad_distance_predictions = mx.stop_gradient(bf_distance_predictions)
-
-        joint_embeddings = mx.concatenate([processed_embeddings, encoded_embeddings, no_grad_distance_predictions], axis=1)
+        joint_embeddings = mx.concatenate([processed_embeddings, encoded_embeddings], axis=1)
+        joint_embeddings = self.predecessor_head_ln_joint(joint_embeddings)
 
         source_embeddings = mx.take(joint_embeddings, source_idx, axis=0)
         target_embeddings = mx.take(joint_embeddings, target_idx, axis=0)
         
-        concatenated_embeddings = mx.concat([source_embeddings, target_embeddings], axis=1)
-        concatenated_embeddings = self.predecessor_head_ln(concatenated_embeddings)
+        edge_weights = mx.expand_dims(connection_matrix[2], axis=-1)
 
-        edge_features = nn.relu(self.bf_predecessor_head_0(concatenated_embeddings))
-        edge_features = self.bf_predecessor_head_1(concatenated_embeddings).squeeze()
+        concatenated_embeddings = mx.concat([source_embeddings, target_embeddings, edge_weights], axis=1)
+        concatenated_embeddings = self.predecessor_head_ln_conca(concatenated_embeddings)
+
+        edge_features = self.bf_predecessor_head(concatenated_embeddings).squeeze()
+
+        num_nodes = processed_embeddings.shape[0]
 
         bf_predecessor_predictions = mx.full([num_nodes, num_nodes], -1e6)
         
         bf_predecessor_predictions[target_idx, source_idx] = edge_features
         
         #bf_predecessor_predictions = nn.softmax(bf_predecessor_predictions, axis=1)
-        
-        return bf_distance_predictions.squeeze(), bf_predecessor_predictions
+        return bf_distance_predictions, bf_predecessor_predictions
     
 class nge(nn.Module):
     def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum, num_mp_layers: int, dropout: float = 0.0):

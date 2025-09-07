@@ -24,7 +24,7 @@ HYPERPARAMETERS = {
     'epochs': 2000,
     'start_lr':1e-5,
     'end_lr': 1e-5,
-    'decay_ratio': .1,
+    'decay_ratio': .01,
     'max_grad_norm': 1.0,
     'batch_size' : 5,
 }
