@@ -95,12 +95,18 @@ def bellman_ford_log(
     source: int,
     num_nodes: int,
 ) -> tuple[List[List[float]], List[List[int | None]]]:
-
+    """
+    Paper-consistent BF logging:
+      - source predecessor fixed to itself
+      - update predecessor only on genuine relaxation
+      - ties allowed (<=) but written only when distance improves
+    """
     if edges.size == 0:
         return [], []
 
     num_edges = edges.shape[1]
 
+    # Build in-neighborhoods with weights
     in_neighbors: List[List[Tuple[int, float]]] = [[] for _ in range(num_nodes)]
     for k in range(num_edges):
         u = int(edges[0, k])
@@ -108,16 +114,17 @@ def bellman_ford_log(
         w = float(edges[2, k])
         in_neighbors[v].append((u, w))
 
-    distance      : List[float]      = [inf] * num_nodes
-    predecessor   : List[int | None] = [None] * num_nodes
-    distance[source] = 0.0
-    predecessor[source] = source      # p_s = s  for *all* iterations
+    # Init
+    distance:    List[float]      = [inf] * num_nodes
+    predecessor: List[int | None] = [None] * num_nodes
+    distance[source]    = 0.0
+    predecessor[source] = source  # p_s = s for all iterations
 
     distance_log    = [distance.copy()]
     predecessor_log = [predecessor.copy()]
 
+    # Up to |V|-1 rounds
     for _ in range(num_nodes - 1):
-
         new_distance    = distance.copy()
         new_predecessor = predecessor.copy()
         updated = False
@@ -129,13 +136,14 @@ def bellman_ford_log(
             best_cost = inf
             best_pred = None
 
+            # Best incoming relaxation candidate
             for j, w in in_neighbors[i]:
                 cand = distance[j] + w
-                if cand <= best_cost:          # tie OK; write only on relaxation below
+                if cand <= best_cost:
                     best_cost = cand
                     best_pred = j
 
-            # write predecessor only on genuine relaxation
+            # Write only on genuine relaxation
             if best_cost < new_distance[i]:
                 new_distance[i]    = best_cost
                 new_predecessor[i] = best_pred
@@ -153,32 +161,36 @@ def bellman_ford_log(
 
 
 def clean_bf_logs(log: List[List[float]] | List[List[int | None]]) -> mx.array:
+    """
+    Paper-aligned cleaning:
+      - Distances: per-graph normalization (∞ -> S = max_finite+1, then /S) ⇒ unreachable = 1.0
+      - Predecessors: None -> node index (self), so targets are always in [0..N-1]
+    """
     if not log or not log[-1]:
         return mx.array(log)
 
-    is_distance_log = isinstance(log[0][0], float)
+    # Distance vs predecessor?
+    is_distance = isinstance(log[0][0], float)
 
-    if is_distance_log:
+    if is_distance:
         final = log[-1]
-        finite_vals = [x for x in final if x != float('inf')]
-        # Per-graph scale
-        S = (max(finite_vals) + 1.0) if finite_vals else 1.0
+        finite = [x for x in final if x != float('inf')]
+        # Scale S; if all are inf (degenerate), choose 1.0 to avoid div-by-zero
+        S = (max(finite) + 1.0) if finite else 1.0
 
-        normalized = []
+        norm_log = []
         for state in log:
             # map inf -> S, then divide by S
             state_norm = [((S if x == float('inf') else x) / S) for x in state]
-            normalized.append(state_norm)
-        return mx.array(normalized, dtype=mx.float32)
+            norm_log.append(state_norm)
+        return mx.array(norm_log, dtype=mx.float32)
 
     else:
-        # predecessor log: None -> -1 sentinel
-        cleaned_log = []
+        # Predecessors: replace None with the node index (self)
+        cleaned = []
         for state in log:
-            cleaned_state = [(-1 if x is None else x) for x in state]
-            cleaned_log.append(cleaned_state)
-        return mx.array(cleaned_log)
-
+            cleaned_state = [(i if x is None else x) for i, x in enumerate(state)]
+            cleaned.append(cleaned_state)
 
 
 def bfs_log(
