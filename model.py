@@ -46,8 +46,6 @@ class mp_layer(nn.Module):
         filtered_target_embeddings = mx.take(target_embeddings, target_idx, axis=0)
 
         message = mx.concatenate([filtered_source_embeddings, filtered_target_embeddings, edge_weights], axis=1)
-        
-        message = self.dropout(message)
     
         message_dim = 2 * self.embed_dim + 1  # source + target + edge_weight
         
@@ -77,7 +75,6 @@ class mp_layer(nn.Module):
         agg_message = self.layer_norm(agg_message)
 
         new_node_embeddings = self.update_fn(agg_message)
-        new_node_embeddings = nn.relu(new_node_embeddings)
 
         if (self.residual_connections):
             new_node_embeddings = new_node_embeddings + node_embeddings
@@ -152,15 +149,15 @@ class bf_decoder(nn.Module):
         target_idx = connection_matrix[self.target_idx].astype(mx.int32)
 
         joint_embeddings = mx.concatenate([processed_embeddings, encoded_embeddings], axis=1)
-        joint_embeddings = self.predecessor_head_ln_joint(joint_embeddings)
+        # joint_embeddings = self.predecessor_head_ln_joint(joint_embeddings)
 
         source_embeddings = mx.take(joint_embeddings, source_idx, axis=0)
         target_embeddings = mx.take(joint_embeddings, target_idx, axis=0)
         
-        edge_weights = mx.expand_dims(connection_matrix[2], axis=-1)
+        edge_weights = mx.sigmoid(mx.expand_dims(connection_matrix[2], axis=-1))
 
         concatenated_embeddings = mx.concat([source_embeddings, target_embeddings, edge_weights], axis=1)
-        concatenated_embeddings = self.predecessor_head_ln_conca(concatenated_embeddings)
+        # concatenated_embeddings = self.predecessor_head_ln_conca(concatenated_embeddings)
 
         edge_features = self.bf_predecessor_head(concatenated_embeddings).squeeze()
 
