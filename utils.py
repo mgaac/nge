@@ -1,6 +1,17 @@
 import mlx.core as mx
 import mlx.nn as nn
+import mlx.utils as utils
 import numpy as np
+
+
+def extract_per_head_magnitude_grads(grads):
+    head_names = set()
+    utils.tree_map_with_path(lambda path, _: head_names.add(path.split('.')[0]), grads)
+
+    per_head_magnitude_grads = {}
+    for head_name in head_names:
+        per_head_magnitude_grads[head_name] = utils.tree_reduce(lambda acc, x: acc + mx.sum(mx.square(x)), grads[head_name], 0.0) ** 0.5
+    return per_head_magnitude_grads
 
 def print_execution_details_v2(model, graph_data, embedding_dim):
     """
@@ -23,8 +34,24 @@ def print_execution_details_v2(model, graph_data, embedding_dim):
     bfs_termination_correct_sum = 0
     bfs_termination_total_sum = 0
     
+    # Per-head norm tracking
+    accumulated_bf_distance_norms = mx.array(0.0)
+    accumulated_bf_predecessor_norms = mx.array(0.0)
+    accumulated_bfs_state_norms = mx.array(0.0)
+    accumulated_bf_termination_norms = mx.array(0.0)
+    accumulated_bfs_termination_norms = mx.array(0.0)
+    accumulated_hidden_state_norms = mx.array(0.0)
+    
+    # Counters for averaging
+    bf_distance_step_count = 0
+    bf_predecessor_step_count = 0
+    bfs_state_step_count = 0
+    bf_termination_step_count = 0
+    bfs_termination_step_count = 0
+    total_step_count = 0
+    
     num_nodes = graph_data['num_nodes']
-    previous_step_hidden_states = mx.zeros([num_nodes, embedding_dim])
+    previous_step_hidden_states = mx.zeros([num_nodes, 2 * embedding_dim])
     
     num_bf_steps = len(graph_data['bf_distance_targets'])
     num_bfs_steps = len(graph_data['bfs_state_targets'])
@@ -74,7 +101,7 @@ def print_execution_details_v2(model, graph_data, embedding_dim):
         }
         
         # Prepare model inputs
-        node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf]).reshape([-1, 2])
+        node_algo_features = mx.stack([true_bfs_state, true_distance_bf], axis=1)
         input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
         model_input = (input_embeddings, graph_data['edge_matrix'])
         
@@ -97,6 +124,11 @@ def print_execution_details_v2(model, graph_data, embedding_dim):
             bf_distance_correct_sum += bf_distance_correct
             bf_distance_total_sum += bf_distance_total
             
+            # Track BF distance norm
+            bf_distance_norm = mx.linalg.norm(bf_distance_predictions)
+            accumulated_bf_distance_norms += bf_distance_norm
+            bf_distance_step_count += 1
+            
             # BF Predecessor Loss (with masking)
             valid_mask = (target_predecessor_bf != -1)
             safe_targets = mx.where(valid_mask, target_predecessor_bf, mx.zeros_like(target_predecessor_bf))
@@ -113,6 +145,11 @@ def print_execution_details_v2(model, graph_data, embedding_dim):
             bf_predecessor_correct_sum += bf_predecessor_correct
             bf_predecessor_total_sum += bf_predecessor_total
             
+            # Track BF predecessor norm
+            bf_predecessor_norm = mx.linalg.norm(bf_predecessor_predictions)
+            accumulated_bf_predecessor_norms += bf_predecessor_norm
+            bf_predecessor_step_count += 1
+            
             # BF Termination Loss
             bf_termination_loss = nn.losses.binary_cross_entropy(termination_probs['bf'], termination_targets['bf'], reduction='mean')
             
@@ -121,6 +158,11 @@ def print_execution_details_v2(model, graph_data, embedding_dim):
             bf_term_correct = (bf_term_pred.astype(mx.float32) == termination_targets['bf']).item()
             bf_termination_correct_sum += bf_term_correct
             bf_termination_total_sum += 1
+            
+            # Track BF termination norm
+            bf_termination_norm = mx.linalg.norm(termination_probs['bf'])
+            accumulated_bf_termination_norms += bf_termination_norm
+            bf_termination_step_count += 1
             
             print(f"\nBF DISTANCE:")
             print(f"  Loss: {bf_distance_loss.item():.6f}")
@@ -156,6 +198,11 @@ def print_execution_details_v2(model, graph_data, embedding_dim):
             bfs_state_correct_sum += bfs_state_correct
             bfs_state_total_sum += bfs_state_total
             
+            # Track BFS state norm
+            bfs_state_norm = mx.linalg.norm(bfs_output)
+            accumulated_bfs_state_norms += bfs_state_norm
+            bfs_state_step_count += 1
+            
             # BFS Termination Loss
             bfs_termination_loss = nn.losses.binary_cross_entropy(termination_probs['bfs'], termination_targets['bfs'], reduction='mean', with_logits=True)
             
@@ -164,6 +211,11 @@ def print_execution_details_v2(model, graph_data, embedding_dim):
             bfs_term_correct = (bfs_term_pred.astype(mx.float32) == termination_targets['bfs']).item()
             bfs_termination_correct_sum += bfs_term_correct
             bfs_termination_total_sum += 1
+            
+            # Track BFS termination norm
+            bfs_termination_norm = mx.linalg.norm(termination_probs['bfs'])
+            accumulated_bfs_termination_norms += bfs_termination_norm
+            bfs_termination_step_count += 1
             
             print(f"\nBFS STATE:")
             print(f"  Loss: {bfs_state_loss.item():.6f}")
@@ -188,9 +240,14 @@ def print_execution_details_v2(model, graph_data, embedding_dim):
         # Update hidden states
         previous_step_hidden_states = processed_embeddings
         
+        # Track hidden state norm
+        hidden_state_norm = mx.linalg.norm(processed_embeddings)
+        accumulated_hidden_state_norms += hidden_state_norm
+        total_step_count += 1
+        
         print(f"\nSTEP SUMMARY:")
         print(f"  Total step loss: {total_step_loss.item():.6f}")
-        print(f"  Hidden state norm: {mx.linalg.norm(processed_embeddings).item():.4f}")
+        print(f"  Hidden state norm: {hidden_state_norm.item():.4f}")
         
     # Calculate averages (matching train.py logic)
     bf_steps = max(num_bf_steps - 1, 0)
@@ -234,13 +291,31 @@ def print_execution_details_v2(model, graph_data, embedding_dim):
     print(f"  BFS Termination: {overall_bfs_termination_acc:.3f} ({bfs_termination_correct_sum}/{bfs_termination_total_sum})")
     print(f"{'='*80}\n")
     
-    return average_loss, mx.linalg.norm(processed_embeddings)
+    # Calculate average per-head norms
+    avg_bf_distance_norm = accumulated_bf_distance_norms / max(bf_distance_step_count, 1)
+    avg_bf_predecessor_norm = accumulated_bf_predecessor_norms / max(bf_predecessor_step_count, 1)
+    avg_bfs_state_norm = accumulated_bfs_state_norms / max(bfs_state_step_count, 1)
+    avg_bf_termination_norm = accumulated_bf_termination_norms / max(bf_termination_step_count, 1)
+    avg_bfs_termination_norm = accumulated_bfs_termination_norms / max(bfs_termination_step_count, 1)
+    avg_hidden_state_norm = accumulated_hidden_state_norms / max(total_step_count, 1)
+    
+    # Return both the average loss and all the norms
+    per_head_norms = {
+        'bf_distance': avg_bf_distance_norm,
+        'bf_predecessor': avg_bf_predecessor_norm,
+        'bfs_state': avg_bfs_state_norm,
+        'bf_termination': avg_bf_termination_norm,
+        'bfs_termination': avg_bfs_termination_norm,
+        'hidden_state': avg_hidden_state_norm
+    }
+    
+    return average_loss, per_head_norms
 
 def print_execution_details(model, graph_data, embedding_dim):
     accumulated_loss = mx.array(0.0)
     num_nodes = graph_data['num_nodes']
 
-    previous_step_hidden_states = mx.zeros([num_nodes, embedding_dim])
+    previous_step_hidden_states = mx.zeros([num_nodes, 2 * embedding_dim])
 
     num_bf_steps  = len(graph_data['bf_distance_targets'])
     num_bfs_steps = len(graph_data['bfs_state_targets'])
@@ -283,7 +358,7 @@ def print_execution_details(model, graph_data, embedding_dim):
         }
 
         # model input (distances already normalized in dataset)
-        node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf]).reshape([-1, 2])
+        node_algo_features = mx.stack([true_bfs_state, true_distance_bf], axis=1)
         input_embeddings   = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
         model_input        = (input_embeddings, graph_data['edge_matrix'])
 
@@ -404,7 +479,7 @@ def calculate_losses_and_accuracies_v2(model, graph_data, embedding_dim=128):
     bfs_termination_total_sum = 0
     
     num_nodes = graph_data['num_nodes']
-    previous_step_hidden_states = mx.zeros([num_nodes, embedding_dim])
+    previous_step_hidden_states = mx.zeros([num_nodes, 2 * embedding_dim])
     
     num_bf_steps = len(graph_data['bf_distance_targets'])
     num_bfs_steps = len(graph_data['bfs_state_targets'])
@@ -444,7 +519,7 @@ def calculate_losses_and_accuracies_v2(model, graph_data, embedding_dim=128):
         }
         
         # Prepare model inputs
-        node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf]).reshape([-1, 2])
+        node_algo_features = mx.stack([true_bfs_state, true_distance_bf], axis=1)
         input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
         model_input = (input_embeddings, graph_data['edge_matrix'])
         
@@ -468,10 +543,18 @@ def calculate_losses_and_accuracies_v2(model, graph_data, embedding_dim=128):
             # BF Predecessor Loss - exactly as in train.py
             valid_mask = (target_predecessor_bf != -1)
             safe_targets = mx.where(valid_mask, target_predecessor_bf, mx.zeros_like(target_predecessor_bf))
-            per_node_ce = nn.losses.cross_entropy(bf_predecessor_predictions, safe_targets, reduction='none')
-            valid_mask_f = valid_mask.astype(mx.float32)
-            denom = mx.maximum(valid_mask_f.sum(), mx.array(1.0))
-            bf_predecessor_loss = (per_node_ce * valid_mask_f).sum() / denom
+            
+            # Only compute loss if we have valid targets
+            if mx.sum(valid_mask) > 0:
+                per_node_ce = nn.losses.cross_entropy(bf_predecessor_predictions, safe_targets, reduction='none')
+                valid_mask_f = valid_mask.astype(mx.float32)
+                denom = mx.maximum(valid_mask_f.sum(), mx.array(1.0))
+                bf_predecessor_loss = (per_node_ce * valid_mask_f).sum() / denom
+                
+                # Clip extreme losses to prevent gradient explosion
+                bf_predecessor_loss = mx.minimum(bf_predecessor_loss, mx.array(10.0))
+            else:
+                bf_predecessor_loss = mx.array(0.0)
             
             # BF Predecessor Accuracy - only count valid nodes
             pred_argmax = mx.argmax(bf_predecessor_predictions, axis=-1)
@@ -578,7 +661,7 @@ def calculate_losses_and_accuracies(model, graph_data, embedding_dim=128):
     bfs_termination_total = 0
 
     num_nodes = graph_data['num_nodes']
-    previous_step_hidden_states = mx.zeros([num_nodes, embedding_dim])
+    previous_step_hidden_states = mx.zeros([num_nodes, 2 * embedding_dim])
 
     num_bf_steps  = len(graph_data['bf_distance_targets'])
     num_bfs_steps = len(graph_data['bfs_state_targets'])
@@ -628,7 +711,7 @@ def calculate_losses_and_accuracies(model, graph_data, embedding_dim=128):
             'bfs': mx.array(1.0 if is_last_bfs_step else 0.0),
         }
 
-        node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf]).reshape([-1, 2])
+        node_algo_features = mx.stack([true_bfs_state, true_distance_bf], axis=1)
         input_embeddings   = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
         model_input        = (input_embeddings, graph_data['edge_matrix'])
 
@@ -749,7 +832,7 @@ def calculate_accuracies_v2(model, graph_data, embedding_dim=128):
     bfs_termination_total_sum = 0
     
     num_nodes = graph_data['num_nodes']
-    previous_step_hidden_states = mx.zeros([num_nodes, embedding_dim])
+    previous_step_hidden_states = mx.zeros([num_nodes, 2 * embedding_dim])
     
     num_bf_steps = len(graph_data['bf_distance_targets'])
     num_bfs_steps = len(graph_data['bfs_state_targets'])
@@ -789,7 +872,7 @@ def calculate_accuracies_v2(model, graph_data, embedding_dim=128):
         }
         
         # Prepare model inputs
-        node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf]).reshape([-1, 2])
+        node_algo_features = mx.stack([true_bfs_state, true_distance_bf], axis=1)
         input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
         model_input = (input_embeddings, graph_data['edge_matrix'])
         

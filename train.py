@@ -8,7 +8,7 @@ import wandb
 
 from model import nge, aggregation_fn
 from data.data import load_dataset
-from utils import print_execution_details, calculate_losses_and_accuracies
+from utils import print_execution_details, calculate_losses_and_accuracies, extract_per_head_magnitude_grads
 
 mx.random.seed(42)
 
@@ -18,15 +18,17 @@ MODEL_CONFIG = {
     'agg_fn': aggregation_fn.MAX,
     'num_mp_layers': 2,
     'dropout': 0.1,
+    'num_predecessor_layers': 5,
+    'num_update_layers': 1,
 }
 
 HYPERPARAMETERS = {
-    'epochs': 2000,
+    'epochs': 1000,
     'start_lr':1e-5,
     'end_lr': 1e-5,
-    'decay_ratio': .01,
+    'decay_ratio': .005,
     'max_grad_norm': 1.0,
-    'batch_size' : 5,
+    'batch_size': 5,
 }
 
 model = nge(**MODEL_CONFIG)
@@ -44,7 +46,7 @@ def graph_execution_loss_fn(model, graph_data):
     accumulated_aux_losses = mx.zeros([5])
 
     num_nodes = graph_data['num_nodes']
-    previous_step_hidden_states = mx.zeros([num_nodes, MODEL_CONFIG['embed_dim']])
+    previous_step_hidden_states = mx.zeros([num_nodes, MODEL_CONFIG['embed_dim'] * 2])
 
     num_bf_steps = len(graph_data['bf_distance_targets'])
     num_bfs_steps = len(graph_data['bfs_state_targets'])
@@ -85,7 +87,8 @@ def graph_execution_loss_fn(model, graph_data):
         }
 
         # Prepare model inputs
-        node_algo_features = mx.concatenate([true_bfs_state, true_distance_bf]).reshape([-1, 2])
+        node_algo_features = mx.stack([true_bfs_state, true_distance_bf], axis=1)
+
         input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
         model_input = (input_embeddings, graph_data['edge_matrix'])
 
@@ -97,19 +100,19 @@ def graph_execution_loss_fn(model, graph_data):
             bf_distance_predictions, bf_predecessor_predictions = bf_output
             bf_distance_loss = nn.losses.mse_loss(bf_distance_predictions, target_distance_bf, reduction='mean')
 
-            # Conver invalid, denoted by -1, to a valid class, 0.
+            # Convert invalid, denoted by -1, to a valid class, 0.
             valid_mask = (target_predecessor_bf != -1)                          # [num_nodes] bool
             safe_targets = mx.where(valid_mask, target_predecessor_bf,
                                     mx.zeros_like(target_predecessor_bf))  
             
             per_node_ce = nn.losses.cross_entropy(bf_predecessor_predictions, safe_targets, reduction='none')
-
+            
             # Only consider loss over valid nodes
             valid_mask_f = valid_mask.astype(mx.float32)
             denom = mx.maximum(valid_mask_f.sum(), mx.array(1.0))
             bf_predecessor_loss = (per_node_ce * valid_mask_f).sum() / denom
 
-            bf_termination_loss = nn.losses.binary_cross_entropy(termination_probs['bf'], termination_targets['bf'], reduction='mean')
+            bf_termination_loss = nn.losses.binary_cross_entropy(termination_probs['bf'], termination_targets['bf'], reduction='mean', with_logits=True)
         else:
             bf_distance_loss = mx.array(0.0)
             bf_predecessor_loss = mx.array(0.0)
@@ -147,7 +150,7 @@ def graph_execution_loss_fn(model, graph_data):
     return average_loss, avg_aux_losses
 
 # Initialize wandb
-wandb.init(project="nge-vanilla", config={**MODEL_CONFIG, **HYPERPARAMETERS})
+wandb.init(project="nge", config={**MODEL_CONFIG, **HYPERPARAMETERS})
 
 def evaluate_model(model, dataset):
     # Set model to evaluation mode (disables dropout)
@@ -184,6 +187,7 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
 
         accumulated_epoch_loss = mx.array(0.0)
         accumulated_aux_losses = mx.zeros([5])
+        accumulated_per_head_grads = {}
 
         permutation = mx.random.permutation(len(dataset))
         # We will index into the original Python list using this permutation
@@ -196,6 +200,15 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
             graph_data = dataset[int(idx.item())]
 
             (loss, aux_losses), grads = loss_and_grad_fn(model, graph_data)
+
+            per_head_magnitude_grads = extract_per_head_magnitude_grads(grads)
+            
+            # Accumulate per-head gradients
+            for head_name, grad_value in per_head_magnitude_grads.items():
+                if head_name not in accumulated_per_head_grads:
+                    accumulated_per_head_grads[head_name] = grad_value
+                else:
+                    accumulated_per_head_grads[head_name] += grad_value
 
             # --- Gradient accumulation ---
             if acc_batch_grads is None:
@@ -212,9 +225,11 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
                 # Average by actual bucket size (last bucket may be smaller)
                 avg_grads = utils.tree_map(lambda x: x / bucket_count, acc_batch_grads)
 
+                # Now actually clip the gradients
                 avg_grads, norm = optim.clip_grad_norm(
                     avg_grads, max_norm=HYPERPARAMETERS['max_grad_norm']
                 )
+
                 optimizer.update(model, avg_grads)
                 mx.eval(model.parameters(), optimizer.state)
 
@@ -229,10 +244,16 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
         avg_epoch_loss = accumulated_epoch_loss / len(dataset)
         avg_aux_losses = accumulated_aux_losses / len(dataset)
         
+        # Compute average per-head gradients
+        avg_per_head_grads = {
+            head_name: grad_value / len(dataset)
+            for head_name, grad_value in accumulated_per_head_grads.items()
+        }
+        
         print(f"Epoch {epoch}: loss = {avg_epoch_loss}")
-
+        
         # Log to wandb with organized structure
-        wandb.log({
+        log_dict = {
             # Main metrics (at root level for easy access)
             "loss": float(avg_epoch_loss),
             "lr": float(optimizer.learning_rate),
@@ -243,10 +264,22 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
             "losses/bfs_state": float(avg_aux_losses[2]),
             "losses/bf_termination": float(avg_aux_losses[3]),
             "losses/bfs_termination": float(avg_aux_losses[4]),
-        })
+        }
+        
+        # Add per-head average gradients to the log
+        for head_name, grad_value in avg_per_head_grads.items():
+            log_dict[f"grad_avg/{head_name}"] = float(grad_value)
+        
+        wandb.log(log_dict)
 
         if (epoch + 1) % 10 == 0:
             val_aux_losses, val_loss, val_accuracies = evaluate_model(model, val_dataset)
+
+            # Evaluate on a random subsample of training dataset (same size as validation)
+            train_subsample_size = len(val_dataset)
+            train_subsample_indices = mx.random.permutation(len(train_dataset))[:train_subsample_size]
+            train_subsample = [train_dataset[int(idx.item())] for idx in train_subsample_indices]
+            _, _, train_accuracies = evaluate_model(model, train_subsample)
 
             wandb.log({
                 "val_loss": float(val_loss),
@@ -260,12 +293,29 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
                 "val_losses/bf_predecessor": float(val_aux_losses[1]),
                 "val_losses/bfs_state": float(val_aux_losses[2]),
                 "val_losses/bf_termination": float(val_aux_losses[3]),
-                "val_losses/bfs_termination": float(val_aux_losses[4])
+                "val_losses/bfs_termination": float(val_aux_losses[4]),
+
+                "train_acc/bf_distance": float(train_accuracies[0]),
+                "train_acc/bf_predecessor": float(train_accuracies[1]),
+                "train_acc/bfs_state": float(train_accuracies[2]),
+                "train_acc/bf_termination": float(train_accuracies[3]),
+                "train_acc/bfs_termination": float(train_accuracies[4]),
+
             })
 
             random_idx = mx.random.randint(0, len(train_dataset)).item()
-            _, norm  = print_execution_details(model, train_dataset[random_idx], MODEL_CONFIG['embed_dim'])
-            wandb.log({"debug/hidden_state_norm": float(norm)})
+            _, per_head_norms = print_execution_details(model, train_dataset[random_idx], MODEL_CONFIG['embed_dim'])
+            
+            # Log all the per-head norms to wandb
+            norm_log_dict = {
+                "debug/hidden_state_norm": float(per_head_norms['hidden_state']),
+                "debug/bf_distance_norm": float(per_head_norms['bf_distance']),
+                "debug/bf_predecessor_norm": float(per_head_norms['bf_predecessor']),
+                "debug/bfs_state_norm": float(per_head_norms['bfs_state']),
+                "debug/bf_termination_norm": float(per_head_norms['bf_termination']),
+                "debug/bfs_termination_norm": float(per_head_norms['bfs_termination'])
+            }
+            wandb.log(norm_log_dict)
 
 total_steps = HYPERPARAMETERS['epochs'] * (len(train_dataset) / HYPERPARAMETERS['batch_size'])
 decay_steps = int(total_steps * HYPERPARAMETERS['decay_ratio'])
