@@ -5,12 +5,20 @@ import mlx.utils as utils
 import mlx.optimizers as optim
 
 import wandb    
+import argparse
 
 from model import nge, aggregation_fn
 from data.data import load_dataset
 from utils import print_execution_details, calculate_losses_and_accuracies, extract_per_head_magnitude_grads
 
 mx.random.seed(42)
+
+# Parse command line arguments
+parser = argparse.ArgumentParser(description='Train NGE model')
+parser.add_argument('--no-wandb', action='store_true', help='Disable wandb tracking')
+args = parser.parse_args()
+
+USE_WANDB = not args.no_wandb
 
 MODEL_CONFIG = {
     'embed_dim': 32,
@@ -23,11 +31,11 @@ MODEL_CONFIG = {
 }
 
 HYPERPARAMETERS = {
-    'epochs': 1000,
+    'epochs': 500,
     'start_lr':1e-5,
     'end_lr': 1e-5,
     'decay_ratio': .005,
-    'max_grad_norm': 1.0,
+    'max_grad_norm': 2.0,
     'batch_size': 5,
 }
 
@@ -150,7 +158,11 @@ def graph_execution_loss_fn(model, graph_data):
     return average_loss, avg_aux_losses
 
 # Initialize wandb
-wandb.init(project="nge", config={**MODEL_CONFIG, **HYPERPARAMETERS})
+if USE_WANDB:
+    wandb.init(project="nge", config={**MODEL_CONFIG, **HYPERPARAMETERS})
+    print("Wandb tracking enabled")
+else:
+    print("Wandb tracking disabled")
 
 def evaluate_model(model, dataset):
     # Set model to evaluation mode (disables dropout)
@@ -262,7 +274,7 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
             "losses/bf_distance": float(avg_aux_losses[0]),
             "losses/bf_predecessor": float(avg_aux_losses[1]),
             "losses/bfs_state": float(avg_aux_losses[2]),
-            "losses/bf_termination": float(avg_aux_losses[3]),
+            "losses/bf_termination": float(avg_aux_losses[3]) ,
             "losses/bfs_termination": float(avg_aux_losses[4]),
         }
         
@@ -270,7 +282,8 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
         for head_name, grad_value in avg_per_head_grads.items():
             log_dict[f"grad_avg/{head_name}"] = float(grad_value)
         
-        wandb.log(log_dict)
+        if USE_WANDB:
+            wandb.log(log_dict)
 
         if (epoch + 1) % 10 == 0:
             val_aux_losses, val_loss, val_accuracies = evaluate_model(model, val_dataset)
@@ -281,41 +294,43 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
             train_subsample = [train_dataset[int(idx.item())] for idx in train_subsample_indices]
             _, _, train_accuracies = evaluate_model(model, train_subsample)
 
-            wandb.log({
-                "val_loss": float(val_loss),
-                "val_acc/bf_distance": float(val_accuracies[0]),
-                "val_acc/bf_predecessor": float(val_accuracies[1]),
-                "val_acc/bfs_state": float(val_accuracies[2]),
-                "val_acc/bf_termination": float(val_accuracies[3]),
-                "val_acc/bfs_termination": float(val_accuracies[4]),
+            if USE_WANDB:
+                wandb.log({
+                    "val_loss": float(val_loss),
+                    "val_acc/bf_distance": float(val_accuracies[0]),
+                    "val_acc/bf_predecessor": float(val_accuracies[1]),
+                    "val_acc/bfs_state": float(val_accuracies[2]),
+                    "val_acc/bf_termination": float(val_accuracies[3]),
+                    "val_acc/bfs_termination": float(val_accuracies[4]),
 
-                "val_losses/bf_distance": float(val_aux_losses[0]),
-                "val_losses/bf_predecessor": float(val_aux_losses[1]),
-                "val_losses/bfs_state": float(val_aux_losses[2]),
-                "val_losses/bf_termination": float(val_aux_losses[3]),
-                "val_losses/bfs_termination": float(val_aux_losses[4]),
+                    "val_losses/bf_distance": float(val_aux_losses[0]),
+                    "val_losses/bf_predecessor": float(val_aux_losses[1]),
+                    "val_losses/bfs_state": float(val_aux_losses[2]),
+                    "val_losses/bf_termination": float(val_aux_losses[3]),
+                    "val_losses/bfs_termination": float(val_aux_losses[4]),
 
-                "train_acc/bf_distance": float(train_accuracies[0]),
-                "train_acc/bf_predecessor": float(train_accuracies[1]),
-                "train_acc/bfs_state": float(train_accuracies[2]),
-                "train_acc/bf_termination": float(train_accuracies[3]),
-                "train_acc/bfs_termination": float(train_accuracies[4]),
+                    "train_acc/bf_distance": float(train_accuracies[0]),
+                    "train_acc/bf_predecessor": float(train_accuracies[1]),
+                    "train_acc/bfs_state": float(train_accuracies[2]),
+                    "train_acc/bf_termination": float(train_accuracies[3]),
+                    "train_acc/bfs_termination": float(train_accuracies[4]),
 
-            })
+                })
 
             random_idx = mx.random.randint(0, len(train_dataset)).item()
             _, per_head_norms = print_execution_details(model, train_dataset[random_idx], MODEL_CONFIG['embed_dim'])
             
             # Log all the per-head norms to wandb
-            norm_log_dict = {
-                "debug/hidden_state_norm": float(per_head_norms['hidden_state']),
-                "debug/bf_distance_norm": float(per_head_norms['bf_distance']),
-                "debug/bf_predecessor_norm": float(per_head_norms['bf_predecessor']),
-                "debug/bfs_state_norm": float(per_head_norms['bfs_state']),
-                "debug/bf_termination_norm": float(per_head_norms['bf_termination']),
-                "debug/bfs_termination_norm": float(per_head_norms['bfs_termination'])
-            }
-            wandb.log(norm_log_dict)
+            if USE_WANDB:
+                norm_log_dict = {
+                    "debug/hidden_state_norm": float(per_head_norms['hidden_state']),
+                    "debug/bf_distance_norm": float(per_head_norms['bf_distance']),
+                    "debug/bf_predecessor_norm": float(per_head_norms['bf_predecessor']),
+                    "debug/bfs_state_norm": float(per_head_norms['bfs_state']),
+                    "debug/bf_termination_norm": float(per_head_norms['bf_termination']),
+                    "debug/bfs_termination_norm": float(per_head_norms['bfs_termination'])
+                }
+                wandb.log(norm_log_dict)
 
 total_steps = HYPERPARAMETERS['epochs'] * (len(train_dataset) / HYPERPARAMETERS['batch_size'])
 decay_steps = int(total_steps * HYPERPARAMETERS['decay_ratio'])
@@ -330,11 +345,12 @@ optimizer = optim.Adam(learning_rate=lr_decay)
 
 train_model(model, train_dataset, optimizer, epochs=HYPERPARAMETERS['epochs'], batch_size=HYPERPARAMETERS['batch_size']) 
 test_aux_losses, test_loss, test_accuracies = evaluate_model(model, test_dataset)
-wandb.log({
-    "test_loss": float(test_loss),
-    "test_acc/bf_distance": float(test_accuracies[0]),
-    "test_acc/bf_predecessor": float(test_accuracies[1]), 
-    "test_acc/bfs_state": float(test_accuracies[2]),
-    "test_acc/bf_termination": float(test_accuracies[3]),
-    "test_acc/bfs_termination": float(test_accuracies[4])
-})
+if USE_WANDB:
+    wandb.log({
+        "test_loss": float(test_loss),
+        "test_acc/bf_distance": float(test_accuracies[0]),
+        "test_acc/bf_predecessor": float(test_accuracies[1]), 
+        "test_acc/bfs_state": float(test_accuracies[2]),
+        "test_acc/bf_termination": float(test_accuracies[3]),
+        "test_acc/bfs_termination": float(test_accuracies[4])
+    })
