@@ -1,3 +1,9 @@
+"""Graph dataset generation and loading utilities.
+
+This module provides functions for generating synthetic graph datasets,
+running graph algorithms (Bellman-Ford and BFS), and saving/loading datasets.
+"""
+
 import mlx.core as mx
 import networkx as nx
 import numpy as np
@@ -55,6 +61,7 @@ def make_bidirectional_edges(edge_matrix):
     """
     Convert directed edges to bidirectional by adding reverse edges.
     For each edge (u,v,w), also adds (v,u,w).
+    Self-loops (u,u) are NOT duplicated.
     """
     if edge_matrix.size == 0:
         return edge_matrix
@@ -63,14 +70,16 @@ def make_bidirectional_edges(edge_matrix):
     bidirectional_edges = []
     
     for i in range(num_edges):
-        u, v = edge_matrix[0, i], edge_matrix[1, i]
+        u, v = int(edge_matrix[0, i]), int(edge_matrix[1, i])
         if edge_matrix.shape[0] > 2:  # Has weights
             w = edge_matrix[2, i]
             bidirectional_edges.append([u, v, w])
-            bidirectional_edges.append([v, u, w])  # Reverse edge with same weight
+            if u != v:  # Not a self-loop: add reverse edge
+                bidirectional_edges.append([v, u, w])
         else:
             bidirectional_edges.append([u, v])
-            bidirectional_edges.append([v, u])  # Reverse edge
+            if u != v:  # Not a self-loop: add reverse edge
+                bidirectional_edges.append([v, u])
     
     return mx.array(bidirectional_edges).T
 
@@ -178,12 +187,12 @@ def clean_bf_logs(log: List[List[float]] | List[List[int | None]]) -> mx.array:
         return mx.array(norm_log, dtype=mx.float32)
 
     else:
-        # Predecessors: replace None with the node index (self)
+        # Predecessors: replace None with -1 (sentinel for "no predecessor")
         cleaned = []
         for state in log:
-            cleaned_state = [(i if x is None else x) for i, x in enumerate(state)]
+            cleaned_state = [(-1 if x is None else x) for i, x in enumerate(state)]
             cleaned.append(cleaned_state)
-        return mx.array(cleaned, dtype=mx.int32)   # <-- add this line
+        return mx.array(cleaned, dtype=mx.int32)
 
 
 def bfs_log(

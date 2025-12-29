@@ -1,0 +1,14 @@
+# Neural Graph Execution (NGE) Dependencies
+
+# Core ML framework
+mlx>=0.0.8
+
+# Graph processing
+networkx>=3.0
+
+# Scientific computing
+numpy>=1.24.0
+
+# Experiment tracking
+wandb>=0.15.0
+

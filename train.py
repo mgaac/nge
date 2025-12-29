@@ -1,13 +1,18 @@
-import mlx.core as mx
-import mlx.nn as nn
+"""Training script for the Neural Graph Execution (NGE) model.
 
-import mlx.utils as utils
-import mlx.optimizers as optim
+This script trains the NGE model to execute graph algorithms (Bellman-Ford and BFS)
+using a message passing neural network architecture.
+"""
 
-import wandb    
 import argparse
 
-from model import nge, aggregation_fn
+import mlx.core as mx
+import mlx.nn as nn
+import mlx.utils as utils
+import mlx.optimizers as optim
+import wandb
+
+from model import NGE, AggregationFn
 from data.data import load_dataset
 from utils import print_execution_details, calculate_losses_and_accuracies, extract_per_head_magnitude_grads
 
@@ -23,7 +28,7 @@ USE_WANDB = not args.no_wandb
 MODEL_CONFIG = {
     'embed_dim': 32,
     'residual_connections': True,
-    'agg_fn': aggregation_fn.MAX,
+    'agg_fn': AggregationFn.MAX,
     'num_mp_layers': 2,
     'dropout': 0.1,
     'num_predecessor_layers': 5,
@@ -32,14 +37,16 @@ MODEL_CONFIG = {
 
 HYPERPARAMETERS = {
     'epochs': 500,
-    'start_lr':1e-5,
+    'start_lr': 1e-5,
     'end_lr': 1e-5,
-    'decay_ratio': .005,
-    'max_grad_norm': 2.0,
-    'batch_size': 5,
+    'decay_ratio': 0.005,
+    'max_grad_norm': 1.0,
+    'batch_size': 10,
+    'bf_pred_alpha': 1.0,
+    'label_smoothing': 0,
 }
 
-model = nge(**MODEL_CONFIG)
+model = NGE(**MODEL_CONFIG)
 
 # Set model to training mode initially
 model.train()
@@ -113,7 +120,7 @@ def graph_execution_loss_fn(model, graph_data):
             safe_targets = mx.where(valid_mask, target_predecessor_bf,
                                     mx.zeros_like(target_predecessor_bf))  
             
-            per_node_ce = nn.losses.cross_entropy(bf_predecessor_predictions, safe_targets, reduction='none')
+            per_node_ce = nn.losses.cross_entropy(bf_predecessor_predictions, safe_targets, reduction='none', label_smoothing=HYPERPARAMETERS['label_smoothing'])
             
             # Only consider loss over valid nodes
             valid_mask_f = valid_mask.astype(mx.float32)
@@ -133,7 +140,7 @@ def graph_execution_loss_fn(model, graph_data):
             bfs_state_loss = mx.array(0.0)
             bfs_termination_loss = mx.array(0.0)
 
-        raw_losses = mx.array([bf_distance_loss, bf_predecessor_loss, bfs_state_loss, bf_termination_loss, bfs_termination_loss])
+        raw_losses = mx.array([bf_distance_loss, HYPERPARAMETERS['bf_pred_alpha'] * bf_predecessor_loss, bfs_state_loss, bf_termination_loss, bfs_termination_loss])
         total_step_loss = mx.sum(raw_losses)
 
         # Update for next step
@@ -141,19 +148,20 @@ def graph_execution_loss_fn(model, graph_data):
         accumulated_loss += total_step_loss
         accumulated_aux_losses += raw_losses
 
-        bf_steps  = max(num_bf_steps  - 1, 0)
-        bfs_steps = max(num_bfs_steps - 1, 0)
-        effective_steps = max(bf_steps, bfs_steps, 1)
+    # Compute averages AFTER the loop (not inside)
+    bf_steps  = max(num_bf_steps  - 1, 0)
+    bfs_steps = max(num_bfs_steps - 1, 0)
+    effective_steps = max(bf_steps, bfs_steps, 1)
 
-        average_loss = accumulated_loss / effective_steps
-        per_task_counter = mx.array([
-            max(bf_steps, 1),   # bf_distance
-            max(bf_steps, 1),   # bf_predecessor
-            max(bfs_steps, 1),  # bfs_state
-            max(bf_steps, 1),   # bf_termination
-            max(bfs_steps, 1),  # bfs_termination
-        ], dtype=mx.float32)
-        avg_aux_losses = accumulated_aux_losses / per_task_counter
+    average_loss = accumulated_loss / effective_steps
+    per_task_counter = mx.array([
+        max(bf_steps, 1),   # bf_distance
+        max(bf_steps, 1),   # bf_predecessor
+        max(bfs_steps, 1),  # bfs_state
+        max(bf_steps, 1),   # bf_termination
+        max(bfs_steps, 1),  # bfs_termination
+    ], dtype=mx.float32)
+    avg_aux_losses = accumulated_aux_losses / per_task_counter
 
     return average_loss, avg_aux_losses
 
@@ -272,7 +280,7 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
             
             # Loss breakdown
             "losses/bf_distance": float(avg_aux_losses[0]),
-            "losses/bf_predecessor": float(avg_aux_losses[1]),
+            "losses/bf_predecessor": float(avg_aux_losses[1]) / HYPERPARAMETERS['bf_pred_alpha'],
             "losses/bfs_state": float(avg_aux_losses[2]),
             "losses/bf_termination": float(avg_aux_losses[3]) ,
             "losses/bfs_termination": float(avg_aux_losses[4]),

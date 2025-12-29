@@ -1,15 +1,24 @@
+"""Neural Graph Execution (NGE) model implementation.
+
+This module implements a graph neural network for executing graph algorithms,
+specifically Bellman-Ford and BFS, using message passing neural networks.
+"""
+
 import mlx.core as mx
 import mlx.nn as nn
 
 from enum import Enum
 
-class aggregation_fn(Enum):
+
+class AggregationFn(Enum):
+    """Aggregation functions for message passing."""
     SUM = 1
     AVG = 2
     MIN = 4
     MAX = 5
 
-class mp_layer(nn.Module):
+
+class MPLayer(nn.Module):
     def __init__(self, embed_dim: int, residual_connections: bool, dropout: float, agg_fn: Enum, num_update_layers: int = 1):
         super().__init__()
 
@@ -23,8 +32,8 @@ class mp_layer(nn.Module):
 
         self.message_fn = nn.Linear(2 * embed_dim + 1, embed_dim, bias=True)
 
-        # self.embed_ln = nn.LayerNorm(2 * embed_dim)
-        # self.update_ln = nn.LayerNorm(embed_dim)
+        self.embed_ln = nn.LayerNorm(2 * embed_dim)
+        self.update_ln = nn.LayerNorm(embed_dim)
 
         self.update_fn = nn.Linear(embed_dim, embed_dim)
         self.dropout = nn.Dropout(p=dropout)
@@ -42,48 +51,49 @@ class mp_layer(nn.Module):
         target_embeddings = mx.take(node_embeddings, target_idx, axis=0)
 
         message_in = mx.concatenate([source_embeddings, target_embeddings], axis=1)
-        # message_in = source_embeddings + target_embeddings
-        # message_in = self.embed_ln(message_in)
+        message_in = self.embed_ln(message_in)
         message = self.message_fn(mx.concatenate([message_in, edge_weights], axis=1))
     
-        if (self.agg_fn == aggregation_fn.SUM):
+        if (self.agg_fn == AggregationFn.SUM):
             agg_message = mx.zeros([num_nodes, self.embed_dim])
             agg_message = agg_message.at[target_idx].add(message)
 
-        elif (self.agg_fn == aggregation_fn.AVG):
+        elif (self.agg_fn == AggregationFn.AVG):
             agg_message = mx.zeros([num_nodes, self.embed_dim])
             agg_message = agg_message.at[target_idx].add(message)
             denominator = mx.zeros([num_nodes, 1]).at[target_idx].add(1)
             agg_message = agg_message / mx.maximum(denominator, 1e-9)
 
-        elif (self.agg_fn == aggregation_fn.MAX):
+        elif (self.agg_fn == AggregationFn.MAX):
             agg_message = mx.full([num_nodes, self.embed_dim], -1e6)
             agg_message = agg_message.at[target_idx].maximum(message)
             has_incoming = mx.zeros([num_nodes, 1]).at[target_idx].add(1) > 0
             agg_message = mx.where(has_incoming, agg_message, mx.zeros_like(agg_message))
 
-        elif (self.agg_fn == aggregation_fn.MIN):
+        elif (self.agg_fn == AggregationFn.MIN):
             agg_message = mx.full([num_nodes, self.embed_dim], 1e6)
             agg_message = agg_message.at[target_idx].minimum(message)
             has_incoming = mx.zeros([num_nodes, 1]).at[target_idx].add(1) > 0
             agg_message = mx.where(has_incoming, agg_message, mx.zeros_like(agg_message))
 
-        # agg_message = self.update_ln(agg_message)
-        new_node_embeddings = nn.relu(self.update_fn(agg_message)) + node_embeddings
+        agg_message = nn.relu(self.update_fn(agg_message))
+        new_node_embeddings = self.update_ln(agg_message) + node_embeddings
         new_node_embeddings = self.dropout(new_node_embeddings)
 
         return new_node_embeddings
 
-class mpnn(nn.Module):
+class MPNN(nn.Module):
+    """Message Passing Neural Network."""
+    
     def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum, num_mp_layers: int, dropout: float = 0.0, num_update_layers: int = 1):
-        super(mpnn, self).__init__()
+        super(MPNN, self).__init__()
 
         self.embed_dim = embed_dim
         self.residual_connections = residual_connections
         self.agg_fn = agg_fn
 
         self.mp_layers = [
-            mp_layer(embed_dim, residual_connections, dropout, agg_fn, num_update_layers)
+            MPLayer(embed_dim, residual_connections, dropout, agg_fn, num_update_layers)
             for _ in range(num_mp_layers)
         ]
 
@@ -97,9 +107,11 @@ class mpnn(nn.Module):
 
         return node_embeddings
     
-class bfs_decoder(nn.Module):
+class BFSDecoder(nn.Module):
+    """Decoder for BFS state predictions."""
+    
     def __init__(self, embed_dim: int):
-        super(bfs_decoder, self).__init__()
+        super(BFSDecoder, self).__init__()
 
         self.embed_dim = embed_dim
         self.bfs_state_outputs = nn.Linear(int(embed_dim * 3), 1, bias=False)
@@ -115,9 +127,11 @@ class bfs_decoder(nn.Module):
 
         return bfs_state_predictions
 
-class bf_decoder(nn.Module):
+class BFDecoder(nn.Module):
+    """Decoder for Bellman-Ford distance and predecessor predictions."""
+    
     def __init__(self, embed_dim: int):
-        super(bf_decoder, self).__init__()
+        super(BFDecoder, self).__init__()
 
         self.source_idx = 0
         self.target_idx = 1
@@ -163,19 +177,21 @@ class bf_decoder(nn.Module):
             processed_target_embeddings,
             edge_weights
         ], axis=1)
-        concatenated_embeddings = self.predecessor_ln(concatenated_embeddings)
+        concatenated_embeddings = self.predecessor_ln(concatenated_embeddings) 
 
         edge_logits = self.predecessor_head(concatenated_embeddings).squeeze()
 
         # Use -inf instead of -1e6 for better numerical stability
-        bf_predecessor_predictions = mx.full([num_nodes, num_nodes], -mx.inf)
+        bf_predecessor_predictions = mx.full([num_nodes, num_nodes], -1e6)
         bf_predecessor_predictions[target_idx, source_idx] = edge_logits
         
         return bf_distance_predictions, bf_predecessor_predictions
     
-class nge(nn.Module):
+class NGE(nn.Module):
+    """Neural Graph Execution model for executing graph algorithms."""
+    
     def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum, num_mp_layers: int, dropout: float = 0.0, num_predecessor_layers: int = 2, num_update_layers: int = 1):
-        super(nge, self).__init__()
+        super(NGE, self).__init__()
 
         self.embed_dim = embed_dim
         self.ln = nn.LayerNorm(2 * embed_dim)
@@ -183,13 +199,13 @@ class nge(nn.Module):
         self.bfs_encoder = nn.Linear(2 * embed_dim + 2, embed_dim)
         self.bf_encoder = nn.Linear(2 * embed_dim + 2, embed_dim)
 
-        self.bfs_decoder = bfs_decoder(embed_dim)
-        self.bf_decoder = bf_decoder(embed_dim)
+        self.bfs_decoder = BFSDecoder(embed_dim)
+        self.bf_decoder = BFDecoder(embed_dim)
 
         self.bfs_termination = nn.Linear(2 * embed_dim, 1, bias=True)
         self.bf_termination = nn.Linear(2 * embed_dim, 1, bias=True)
     
-        self.processor = mpnn(2 * embed_dim, residual_connections, agg_fn, num_mp_layers, dropout, num_update_layers)
+        self.processor = MPNN(2 * embed_dim, residual_connections, agg_fn, num_mp_layers, dropout, num_update_layers)
 
     def __call__(self, data):
         node_embeddings, connection_matrix = data
@@ -198,7 +214,7 @@ class nge(nn.Module):
         bf_encoded_embeddings = self.bf_encoder(node_embeddings)
 
         encoded_embeddings = mx.concatenate([bfs_encoded_embeddings, bf_encoded_embeddings], axis=1)
-        # encoded_embeddings = self.ln(encoded_embeddings)
+        encoded_embeddings = self.ln(encoded_embeddings)
 
         processed_embeddings = self.processor((encoded_embeddings, connection_matrix))
 
