@@ -190,7 +190,7 @@ class BFDecoder(nn.Module):
 class NGE(nn.Module):
     """Neural Graph Execution model for executing graph algorithms."""
     
-    def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum, num_mp_layers: int, dropout: float = 0.0, num_predecessor_layers: int = 2, num_update_layers: int = 1):
+    def __init__(self, embed_dim: int, residual_connections: bool, agg_fn: Enum, num_mp_layers: int, dropout: float = 0.0, num_update_layers: int = 1):
         super(NGE, self).__init__()
 
         self.embed_dim = embed_dim

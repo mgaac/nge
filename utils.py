@@ -623,3 +623,36 @@ def calculate_accuracies(model, graph_data, embedding_dim=128):
     bfs_termination_acc = bfs_termination_correct_sum / max(bfs_termination_total_sum, 1)
     
     return mx.array([bf_distance_acc, bf_predecessor_acc, bfs_state_acc, bf_termination_acc, bfs_termination_acc])
+
+
+def safe_trained_model(model, sample_input_embeddings, sample_edge_matrix, output_path="trained_model.mlxfn"):
+    """
+    Save trained model for later use.
+    
+    Args:
+        model: The trained NGE model
+        sample_input_embeddings: Sample input embeddings array to trace the model
+        sample_edge_matrix: Sample edge matrix to trace the model
+        output_path: Path where the model will be saved (default: trained_model.mlxfn)
+    
+    Note:
+        The exported function flattens the model outputs into a tuple of arrays:
+        (bfs_output, bf_distance_predictions, bf_predecessor_predictions, 
+         bf_termination_prob, bfs_termination_prob, processed_embeddings)
+    """
+    
+    mx.eval(model.parameters())
+
+    def call(input_embeddings, edge_matrix):
+        bfs_output, bf_output, termination_probs, processed_embeddings = model((input_embeddings, edge_matrix))
+        bf_distance_predictions, bf_predecessor_predictions = bf_output
+        
+        # Flatten outputs to a simple tuple of arrays for export
+        return (bfs_output, 
+                bf_distance_predictions, 
+                bf_predecessor_predictions,
+                termination_probs['bf'],
+                termination_probs['bfs'],
+                processed_embeddings)
+
+    mx.export_function(output_path, call, (sample_input_embeddings, sample_edge_matrix))

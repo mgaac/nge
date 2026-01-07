@@ -14,13 +14,15 @@ import wandb
 
 from model import NGE, AggregationFn
 from data.data import load_dataset
-from utils import print_execution_details, calculate_losses_and_accuracies, extract_per_head_magnitude_grads
+from utils import print_execution_details, calculate_losses_and_accuracies, extract_per_head_magnitude_grads, safe_trained_model
 
 mx.random.seed(42)
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Train NGE model')
 parser.add_argument('--no-wandb', action='store_true', help='Disable wandb tracking')
+parser.add_argument('--save-model', action='store_true', help='Save the trained model after training')
+parser.add_argument('--model-output', type=str, default='trained_model.mlxfn', help='Output path for saved model (default: trained_model.mlxfn)')
 args = parser.parse_args()
 
 USE_WANDB = not args.no_wandb
@@ -31,19 +33,14 @@ MODEL_CONFIG = {
     'agg_fn': AggregationFn.MAX,
     'num_mp_layers': 2,
     'dropout': 0.1,
-    'num_predecessor_layers': 5,
     'num_update_layers': 1,
 }
 
 HYPERPARAMETERS = {
     'epochs': 500,
-    'start_lr': 1e-5,
-    'end_lr': 1e-5,
-    'decay_ratio': 0.005,
+    'learning_rate': 1e-5,
     'max_grad_norm': 1.0,
     'batch_size': 10,
-    'bf_pred_alpha': 1.0,
-    'label_smoothing': 0,
 }
 
 model = NGE(**MODEL_CONFIG)
@@ -120,7 +117,7 @@ def graph_execution_loss_fn(model, graph_data):
             safe_targets = mx.where(valid_mask, target_predecessor_bf,
                                     mx.zeros_like(target_predecessor_bf))  
             
-            per_node_ce = nn.losses.cross_entropy(bf_predecessor_predictions, safe_targets, reduction='none', label_smoothing=HYPERPARAMETERS['label_smoothing'])
+            per_node_ce = nn.losses.cross_entropy(bf_predecessor_predictions, safe_targets, reduction='none')
             
             # Only consider loss over valid nodes
             valid_mask_f = valid_mask.astype(mx.float32)
@@ -140,7 +137,7 @@ def graph_execution_loss_fn(model, graph_data):
             bfs_state_loss = mx.array(0.0)
             bfs_termination_loss = mx.array(0.0)
 
-        raw_losses = mx.array([bf_distance_loss, HYPERPARAMETERS['bf_pred_alpha'] * bf_predecessor_loss, bfs_state_loss, bf_termination_loss, bfs_termination_loss])
+        raw_losses = mx.array([bf_distance_loss, bf_predecessor_loss, bfs_state_loss, bf_termination_loss, bfs_termination_loss])
         total_step_loss = mx.sum(raw_losses)
 
         # Update for next step
@@ -210,8 +207,6 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
         accumulated_per_head_grads = {}
 
         permutation = mx.random.permutation(len(dataset))
-        # We will index into the original Python list using this permutation
-        # (do not convert the dataset itself to an mx.array)
 
         acc_batch_grads = None
         bucket_count = 0
@@ -280,7 +275,7 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
             
             # Loss breakdown
             "losses/bf_distance": float(avg_aux_losses[0]),
-            "losses/bf_predecessor": float(avg_aux_losses[1]) / HYPERPARAMETERS['bf_pred_alpha'],
+            "losses/bf_predecessor": float(avg_aux_losses[1]),
             "losses/bfs_state": float(avg_aux_losses[2]),
             "losses/bf_termination": float(avg_aux_losses[3]) ,
             "losses/bfs_termination": float(avg_aux_losses[4]),
@@ -340,16 +335,7 @@ def train_model(model, dataset, optimizer, epochs, batch_size=1):
                 }
                 wandb.log(norm_log_dict)
 
-total_steps = HYPERPARAMETERS['epochs'] * (len(train_dataset) / HYPERPARAMETERS['batch_size'])
-decay_steps = int(total_steps * HYPERPARAMETERS['decay_ratio'])
-
-lr_decay = optim.cosine_decay(
-    init=HYPERPARAMETERS['start_lr'],
-    decay_steps=decay_steps,
-    end=HYPERPARAMETERS['end_lr']
-)
-
-optimizer = optim.Adam(learning_rate=lr_decay)
+optimizer = optim.Adam(learning_rate=HYPERPARAMETERS['learning_rate'])
 
 train_model(model, train_dataset, optimizer, epochs=HYPERPARAMETERS['epochs'], batch_size=HYPERPARAMETERS['batch_size']) 
 test_aux_losses, test_loss, test_accuracies = evaluate_model(model, test_dataset)
@@ -362,3 +348,22 @@ if USE_WANDB:
         "test_acc/bf_termination": float(test_accuracies[3]),
         "test_acc/bfs_termination": float(test_accuracies[4])
     })
+
+# Save model if requested
+if args.save_model:
+    print(f"\nSaving trained model to {args.model_output}...")
+    
+    # Prepare sample input for model tracing
+    sample_graph_data = train_dataset[0]
+    num_nodes = sample_graph_data['num_nodes']
+    
+    # Create sample input embeddings (hidden states + algo features)
+    sample_hidden_states = mx.zeros([num_nodes, MODEL_CONFIG['embed_dim'] * 2])
+    sample_bfs_state = sample_graph_data['bfs_state_targets'][0]
+    sample_bf_distance = sample_graph_data['bf_distance_targets'][0]
+    sample_algo_features = mx.stack([sample_bfs_state, sample_bf_distance], axis=1)
+    sample_input_embeddings = mx.concatenate([sample_hidden_states, sample_algo_features], axis=1)
+    sample_edge_matrix = sample_graph_data['edge_matrix']
+    
+    safe_trained_model(model, sample_input_embeddings, sample_edge_matrix, args.model_output)
+    print(f"Model saved successfully!")
