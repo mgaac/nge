@@ -12,3 +12,9 @@ numpy>=1.24.0
 # Experiment tracking
 wandb>=0.15.0
 
+# Configuration management
+pyyaml>=6.0
+
+# Testing
+pytest>=7.0.0
+

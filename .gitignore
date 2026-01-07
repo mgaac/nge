@@ -46,7 +46,7 @@ htmlcov/
 wandb/
 
 # Dataset files (optional - uncomment if you don't want to track datasets)
-# *.npz
+*.npz
 
 # Model checkpoints
 *.ckpt
@@ -57,4 +57,10 @@ checkpoints/
 # Logs
 *.log
 logs/
+
+# Research workflow: run directories
+runs/
+
+# Exported models
+*.mlxfn
 
