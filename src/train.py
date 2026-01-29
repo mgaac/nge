@@ -6,7 +6,6 @@ Usage:
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 import mlx.core as mx
@@ -30,7 +29,6 @@ from src.utils import (
     MetricsLogger,
     calculate_losses_and_accuracies,
     extract_per_head_magnitude_grads,
-    print_execution_details,
 )
 
 
