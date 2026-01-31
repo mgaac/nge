@@ -14,7 +14,21 @@ from typing import Dict, Any, Optional, Tuple
 import mlx.core as mx
 import mlx.nn as nn
 import mlx.optimizers as optim
+import mlx.utils as utils
 
+
+def _tree_flatten(tree):
+    """Flatten a pytree into a flat name->array dict (MLX version compatible)."""
+    try:
+        flat = utils.tree_flatten(tree, destination={})
+    except TypeError:
+        flat = utils.tree_flatten(tree)
+    return dict(flat)
+
+
+def _tree_unflatten(tree):
+    """Unflatten a flat tree produced by _tree_flatten."""
+    return utils.tree_unflatten(list(tree.items()) if isinstance(tree, dict) else tree)
 
 class CheckpointManager:
     """Manages saving and loading of training checkpoints.
@@ -61,18 +75,14 @@ class CheckpointManager:
         ckpt_path = self.checkpoint_dir / ckpt_name
         ckpt_path.mkdir(parents=True, exist_ok=True)
         
-        # Save model weights
-        model_weights = dict(model.parameters())
+        # Save model weights (flatten tree to a flat name->array dict)
+        model_weights = _tree_flatten(model.parameters())
         mx.save_safetensors(str(ckpt_path / "model.safetensors"), model_weights)
         
         # Save optimizer state
-        optimizer_state = optimizer.state
-        # Convert optimizer state to saveable format
-        optimizer_dict = {
-            'learning_rate': float(optimizer.learning_rate),
-            'state': optimizer_state,
-        }
-        mx.save_safetensors(str(ckpt_path / "optimizer.safetensors"), optimizer_dict)
+        # Save optimizer state (flatten tree to a flat name->array dict)
+        optimizer_state = _tree_flatten(optimizer.state)
+        mx.save_safetensors(str(ckpt_path / "optimizer.safetensors"), optimizer_state)
         
         # Save checkpoint metadata
         ckpt_metadata = {
@@ -147,7 +157,7 @@ class CheckpointManager:
             raise ValueError(f"Model weights not found: {model_file}")
         
         model_weights = mx.load(str(model_file))
-        model.load_weights(list(model_weights.items()))
+        model.update(_tree_unflatten(model_weights))
         
         # Load optimizer state if optimizer provided
         if optimizer is not None:
@@ -155,9 +165,8 @@ class CheckpointManager:
             if not optimizer_file.exists():
                 raise ValueError(f"Optimizer state not found: {optimizer_file}")
             
-            optimizer_dict = mx.load(str(optimizer_file))
-            # Restore optimizer state
-            optimizer.state.update(optimizer_dict.get('state', {}))
+            optimizer_state = mx.load(str(optimizer_file))
+            optimizer.state = _tree_unflatten(optimizer_state)
         
         return model, optimizer, step
     

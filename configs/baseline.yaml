@@ -8,10 +8,9 @@ model:
   agg_fn: MAX
   num_mp_layers: 2
   dropout: 0.1
-  num_update_layers: 1
 
 training:
-  epochs: 500
+  epochs: 10 
   learning_rate: 1.0e-5
   max_grad_norm: 1.0
   batch_size: 10
@@ -24,8 +23,8 @@ data:
   test_path: data/test_dataset.npz
 
 logging:
-  use_wandb: false
-  wandb_project: nge
+  use_wandb: true
+  wandb_project: nge-exp 
   wandb_entity: ""
   log_interval: 1
   save_checkpoints: true

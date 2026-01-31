@@ -18,7 +18,6 @@ class ModelConfig:
     agg_fn: str = "MAX"  # SUM, AVG, MIN, MAX
     num_mp_layers: int = 2
     dropout: float = 0.1
-    num_update_layers: int = 1
 
 
 @dataclass

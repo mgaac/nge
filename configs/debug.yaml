@@ -8,7 +8,6 @@ model:
   agg_fn: MAX
   num_mp_layers: 1
   dropout: 0.0
-  num_update_layers: 1
 
 training:
   epochs: 10

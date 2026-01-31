@@ -119,7 +119,6 @@ def create_model(config: ExperimentConfig) -> NGE:
         agg_fn=agg_fn,
         num_mp_layers=config.model.num_mp_layers,
         dropout=config.model.dropout,
-        num_update_layers=config.model.num_update_layers,
     )
     
     return model

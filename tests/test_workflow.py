@@ -70,7 +70,6 @@ def sample_model():
         agg_fn=AggregationFn.MAX,
         num_mp_layers=1,
         dropout=0.0,
-        num_update_layers=1,
     )
 
 
@@ -222,7 +221,6 @@ def test_checkpoint_resume_correctness(temp_dir, sample_model):
         agg_fn=AggregationFn.MAX,
         num_mp_layers=1,
         dropout=0.0,
-        num_update_layers=1,
     )
     new_optimizer = optim.Adam(learning_rate=1e-3)
     

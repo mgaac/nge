@@ -26,7 +26,6 @@ class MPLayer(nn.Module):
         residual_connections: bool,
         dropout: float,
         agg_fn: Enum,
-        num_update_layers: int = 1,
     ):
         super().__init__()
 
@@ -104,7 +103,6 @@ class MPNN(nn.Module):
         agg_fn: Enum,
         num_mp_layers: int,
         dropout: float = 0.0,
-        num_update_layers: int = 1,
     ):
         super(MPNN, self).__init__()
 
@@ -113,7 +111,7 @@ class MPNN(nn.Module):
         self.agg_fn = agg_fn
 
         self.mp_layers = [
-            MPLayer(embed_dim, residual_connections, dropout, agg_fn, num_update_layers)
+            MPLayer(embed_dim, residual_connections, dropout, agg_fn)
             for _ in range(num_mp_layers)
         ]
 
@@ -227,7 +225,6 @@ class NGE(nn.Module):
         agg_fn: Enum,
         num_mp_layers: int,
         dropout: float = 0.0,
-        num_update_layers: int = 1,
     ):
         super(NGE, self).__init__()
 
@@ -249,7 +246,6 @@ class NGE(nn.Module):
             agg_fn,
             num_mp_layers,
             dropout,
-            num_update_layers,
         )
 
     def __call__(self, data):
