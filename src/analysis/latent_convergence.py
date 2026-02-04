@@ -10,7 +10,7 @@ import argparse
 import importlib
 import json
 from pathlib import Path
-from typing import Callable, Iterable, List, Tuple
+from typing import Callable, List, Tuple
 
 import mlx.core as mx
 import numpy as np
@@ -21,8 +21,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from src.data import load_dataset
-from src.model import AggregationFn, NGE
-from src.utils import CheckpointManager, ExperimentConfig, load_config, validate_config
+from src.analysis.common import (
+    compute_encoded_embeddings,
+    iter_execution_inputs,
+    load_model_from_checkpoint,
+    resolve_checkpoint_path,
+    resolve_config,
+    resolve_dataset_path,
+)
+from src.model import NGE
 
 
 DistanceFn = Callable[[np.ndarray, np.ndarray], float]
@@ -118,87 +125,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def create_model(config: ExperimentConfig) -> NGE:
-    agg_fn_map = {
-        "SUM": AggregationFn.SUM,
-        "AVG": AggregationFn.AVG,
-        "MIN": AggregationFn.MIN,
-        "MAX": AggregationFn.MAX,
-    }
-    agg_fn = agg_fn_map[config.model.agg_fn]
-    return NGE(
-        embed_dim=config.model.embed_dim,
-        residual_connections=config.model.residual_connections,
-        agg_fn=agg_fn,
-        num_mp_layers=config.model.num_mp_layers,
-        dropout=config.model.dropout,
-    )
-
-
-def resolve_config(args: argparse.Namespace) -> Tuple[ExperimentConfig, Path | None]:
-    run_dir = Path(args.run_dir) if args.run_dir else None
-    config_path = None
-    if run_dir is not None:
-        config_path = run_dir / "config_resolved.yaml"
-        if not config_path.exists():
-            raise FileNotFoundError(f"Missing config_resolved.yaml in run dir: {run_dir}")
-    elif args.config:
-        config_path = Path(args.config)
-    else:
-        raise ValueError("Provide --config or --run-dir.")
-
-    config = load_config(config_path)
-    validate_config(config)
-    return config, run_dir
-
-
-def resolve_dataset_path(args: argparse.Namespace, config: ExperimentConfig) -> Path:
-    if args.dataset:
-        return Path(args.dataset)
-
-    if args.split == "train":
-        return Path(config.data.train_path)
-    if args.split == "val":
-        return Path(config.data.val_path)
-    return Path(config.data.test_path)
-
-
-def resolve_checkpoint_path(args: argparse.Namespace, run_dir: Path | None) -> Path | None:
-    if args.checkpoint is None and run_dir is None:
-        return None
-
-    if args.checkpoint:
-        ckpt_path = Path(args.checkpoint)
-        if ckpt_path.is_file():
-            ckpt_path = ckpt_path.parent
-        return ckpt_path
-
-    if run_dir is not None:
-        return run_dir / "checkpoints"
-
-    return None
-
-
-def load_model_from_checkpoint(
-    config: ExperimentConfig, checkpoint_path: Path | None, run_dir: Path | None
-) -> Tuple[NGE, int | None]:
-    model = create_model(config)
-    model.eval()
-
-    if checkpoint_path is None:
-        return model, None
-
-    if checkpoint_path.name == "checkpoints":
-        manager = CheckpointManager(checkpoint_path)
-        model, _, step = manager.load(model, optimizer=None, checkpoint_path=None)
-        return model, step
-
-    checkpoint_dir = checkpoint_path.parent if checkpoint_path.is_file() else checkpoint_path
-    manager = CheckpointManager(checkpoint_dir)
-    model, _, step = manager.load(model, optimizer=None, checkpoint_path=checkpoint_path)
-    return model, step
-
-
 def built_in_distances() -> dict[str, DistanceFn]:
     def l2_distance(a: np.ndarray, b: np.ndarray) -> float:
         diff = a - b
@@ -245,38 +171,6 @@ def load_custom_distance_fn(path: str) -> DistanceFn:
     if not callable(fn):
         raise ValueError(f"Custom distance {path} is not callable.")
     return fn
-
-
-def iter_execution_inputs(
-    graph_data: dict, extra_steps: int
-) -> Iterable[Tuple[mx.array, mx.array]]:
-    bf_steps = graph_data["bf_distance_targets"]
-    bfs_steps = graph_data["bfs_state_targets"]
-    num_bf_steps = len(bf_steps)
-    num_bfs_steps = len(bfs_steps)
-    num_steps = max(num_bf_steps, num_bfs_steps)
-
-    for i in range(num_steps):
-        bf_sample_exists = (i + 1) < num_bf_steps
-        bfs_sample_exists = (i + 1) < num_bfs_steps
-        if not (bf_sample_exists or bfs_sample_exists):
-            continue
-        true_bfs_state = bfs_steps[i] if bfs_sample_exists else bfs_steps[-1]
-        true_distance_bf = bf_steps[i] if bf_sample_exists else bf_steps[-1]
-        yield true_bfs_state, true_distance_bf
-
-    if extra_steps > 0:
-        final_bfs = bfs_steps[-1]
-        final_bf = bf_steps[-1]
-        for _ in range(extra_steps):
-            yield final_bfs, final_bf
-
-
-def compute_encoded_embeddings(model: NGE, input_embeddings):
-    bfs_encoded = model.bfs_encoder(input_embeddings)
-    bf_encoded = model.bf_encoder(input_embeddings)
-    encoded = mx.concatenate([bfs_encoded, bf_encoded], axis=1)
-    return model.ln(encoded)
 
 
 def compute_distance_sequence(
@@ -397,13 +291,13 @@ def write_json(path: Path, payload: dict) -> None:
 
 def main() -> None:
     args = parse_args()
-    config, run_dir = resolve_config(args)
+    config, run_dir = resolve_config(args.config, args.run_dir)
 
-    dataset_path = resolve_dataset_path(args, config)
+    dataset_path = resolve_dataset_path(args.dataset, args.split, config)
     if not dataset_path.exists():
         raise FileNotFoundError(f"Dataset not found: {dataset_path}")
 
-    checkpoint_path = resolve_checkpoint_path(args, run_dir)
+    checkpoint_path = resolve_checkpoint_path(args.checkpoint, run_dir)
     model, step = load_model_from_checkpoint(config, checkpoint_path, run_dir)
     model.eval()
 
