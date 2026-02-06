@@ -6,6 +6,7 @@ Usage:
 """
 
 import argparse
+import json
 from pathlib import Path
 
 import mlx.core as mx
@@ -30,17 +31,27 @@ from src.utils import (
     calculate_losses_and_accuracies,
     extract_per_head_magnitude_grads,
 )
+from src.utils.termination import (
+    compute_distance_termination_logits,
+    get_distance_latent,
+    needs_aux_latents,
+    resolve_termination_settings,
+)
 
 
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Train NGE model with research workflow')
-    parser.add_argument('--config', type=str, required=True,
+    parser.add_argument('--config', type=str, required=False,
                         help='Path to YAML config file (e.g., configs/baseline.yaml)')
     parser.add_argument('--resume', action='store_true',
                         help='Resume training from latest checkpoint in existing run')
     parser.add_argument('--run-dir', type=str, default=None,
                         help='Specific run directory to resume from (only with --resume)')
+    parser.add_argument('--checkpoint', type=str, default=None,
+                        help='Checkpoint directory or file to load (for --eval-only)')
+    parser.add_argument('--eval-only', action='store_true',
+                        help='Skip training and run evaluation only')
     return parser.parse_args()
 
 
@@ -124,7 +135,7 @@ def create_model(config: ExperimentConfig) -> NGE:
     return model
 
 
-def graph_execution_loss_fn(model, graph_data, embed_dim):
+def graph_execution_loss_fn(model, graph_data, embed_dim, termination_cfg):
     """Compute loss for graph execution task.
     
     Args:
@@ -145,6 +156,8 @@ def graph_execution_loss_fn(model, graph_data, embed_dim):
     num_bfs_steps = len(graph_data['bfs_state_targets'])
 
     num_steps = max(num_bf_steps, num_bfs_steps)
+    termination_settings = resolve_termination_settings(termination_cfg)
+    previous_distance_latent = None
     
     for i in range(num_steps):
         # Check if samples exist
@@ -184,8 +197,25 @@ def graph_execution_loss_fn(model, graph_data, embed_dim):
         input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
         model_input = (input_embeddings, graph_data['edge_matrix'])
 
-        # Forward pass
-        bfs_output, bf_output, termination_probs, processed_embeddings = model(model_input)
+        need_aux = needs_aux_latents(termination_settings)
+        if need_aux:
+            bfs_output, bf_output, termination_probs, processed_embeddings, aux = model(
+                model_input, return_latents=True
+            )
+        else:
+            bfs_output, bf_output, termination_probs, processed_embeddings = model(model_input)
+            aux = None
+
+        if termination_settings["mode"] == "distance":
+            current_latent = get_distance_latent(termination_settings, processed_embeddings, aux)
+            termination_logits = compute_distance_termination_logits(
+                settings=termination_settings,
+                prev_latent=previous_distance_latent,
+                current_latent=current_latent,
+            )
+            previous_distance_latent = current_latent
+        else:
+            termination_logits = termination_probs
 
         # Compute losses
         if bf_sample_exists:
@@ -204,7 +234,12 @@ def graph_execution_loss_fn(model, graph_data, embed_dim):
             denom = mx.maximum(valid_mask_f.sum(), mx.array(1.0))
             bf_predecessor_loss = (per_node_ce * valid_mask_f).sum() / denom
 
-            bf_termination_loss = nn.losses.binary_cross_entropy(termination_probs['bf'], termination_targets['bf'], reduction='mean', with_logits=True)
+            bf_termination_loss = nn.losses.binary_cross_entropy(
+                termination_logits['bf'],
+                termination_targets['bf'],
+                reduction='mean',
+                with_logits=True,
+            )
         else:
             bf_distance_loss = mx.array(0.0)
             bf_predecessor_loss = mx.array(0.0)
@@ -212,7 +247,12 @@ def graph_execution_loss_fn(model, graph_data, embed_dim):
 
         if bfs_sample_exists:
             bfs_state_loss = nn.losses.binary_cross_entropy(bfs_output, target_bfs_state, reduction='mean', with_logits=True)
-            bfs_termination_loss = nn.losses.binary_cross_entropy(termination_probs['bfs'], termination_targets['bfs'], reduction='mean', with_logits=True)
+            bfs_termination_loss = nn.losses.binary_cross_entropy(
+                termination_logits['bfs'],
+                termination_targets['bfs'],
+                reduction='mean',
+                with_logits=True,
+            )
         else:
             bfs_state_loss = mx.array(0.0)
             bfs_termination_loss = mx.array(0.0)
@@ -243,13 +283,14 @@ def graph_execution_loss_fn(model, graph_data, embed_dim):
     return average_loss, avg_aux_losses
 
 
-def evaluate_model(model, dataset, embed_dim):
+def evaluate_model(model, dataset, embed_dim, termination_cfg):
     """Evaluate model on a dataset.
     
     Args:
         model: NGE model
         dataset: List of graph data dictionaries
         embed_dim: Embedding dimension
+        termination_cfg: ModelConfig controlling termination behavior
         
     Returns:
         Tuple of (avg_aux_losses, avg_loss, avg_accuracies)
@@ -261,7 +302,9 @@ def evaluate_model(model, dataset, embed_dim):
     accumulated_accuracies = mx.zeros([5])
 
     for graph_data in dataset:
-        aux_losses, loss, accuracies = calculate_losses_and_accuracies(model, graph_data, embed_dim)
+        aux_losses, loss, accuracies = calculate_losses_and_accuracies(
+            model, graph_data, embed_dim, termination_cfg
+        )
         accumulated_epoch_loss += loss
         accumulated_aux_losses += aux_losses
         accumulated_accuracies += accuracies
@@ -283,6 +326,7 @@ def train_epoch(
     max_grad_norm,
     logger: MetricsLogger,
     epoch: int,
+    termination_cfg,
     log_interval: int = 1,
 ):
     """Train for one epoch.
@@ -296,6 +340,7 @@ def train_epoch(
         max_grad_norm: Maximum gradient norm for clipping
         logger: Metrics logger
         epoch: Current epoch number
+        termination_cfg: ModelConfig controlling termination behavior
         log_interval: How often to log metrics
         
     Returns:
@@ -317,7 +362,9 @@ def train_epoch(
     for idx_in_epoch, idx in enumerate(permutation):
         graph_data = dataset[int(idx.item())]
         
-        (loss, aux_losses), grads = loss_and_grad_fn(model, graph_data, embed_dim)
+        (loss, aux_losses), grads = loss_and_grad_fn(
+            model, graph_data, embed_dim, termination_cfg
+        )
         
         per_head_magnitude_grads = extract_per_head_magnitude_grads(grads)
         
@@ -390,21 +437,127 @@ def train_epoch(
 def main():
     """Main training function."""
     args = parse_args()
-    
-    # Load and validate config
-    config = load_config(args.config)
+
+    run_dir = Path(args.run_dir) if args.run_dir else None
+    config_path = None
+    if args.eval_only:
+        if run_dir is not None:
+            config_path = run_dir / "config_resolved.yaml"
+            if not config_path.exists():
+                raise FileNotFoundError(f"Missing config_resolved.yaml in run dir: {run_dir}")
+        elif args.config:
+            config_path = Path(args.config)
+        else:
+            raise ValueError("Provide --run-dir or --config for --eval-only.")
+    else:
+        if args.config:
+            config_path = Path(args.config)
+        elif args.resume and run_dir is not None:
+            config_path = run_dir / "config_resolved.yaml"
+            if not config_path.exists():
+                raise FileNotFoundError(f"Missing config_resolved.yaml in run dir: {run_dir}")
+        else:
+            raise ValueError("--config is required unless --eval-only with --run-dir.")
+
+    config = load_config(config_path)
     validate_config(config)
-    
+
     print("=" * 80)
     print(f"Experiment: {config.name}")
     print("=" * 80)
-    
+
+    if args.eval_only:
+        set_seed(config.training.seed)
+        model = create_model(config)
+        model.eval()
+
+        checkpoint_path = None
+        if args.checkpoint:
+            checkpoint_path = Path(args.checkpoint)
+        elif run_dir is not None:
+            checkpoint_path = run_dir / "checkpoints"
+
+        if checkpoint_path is None:
+            raise ValueError("Provide --checkpoint or --run-dir for --eval-only.")
+
+        if checkpoint_path.is_file():
+            checkpoint_dir = checkpoint_path.parent
+        else:
+            checkpoint_dir = checkpoint_path
+        manager = CheckpointManager(checkpoint_dir)
+        if checkpoint_path.name == "checkpoints":
+            model, _, step = manager.load(model, optimizer=None, checkpoint_path=None)
+        else:
+            model, _, step = manager.load(model, optimizer=None, checkpoint_path=checkpoint_path)
+
+        print("\nLoading datasets...")
+        train_dataset = load_dataset(config.data.train_path)
+        val_dataset = load_dataset(config.data.val_path)
+        test_dataset = load_dataset(config.data.test_path)
+        print(f"Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
+
+        print("\nRunning evaluation...")
+        val_aux_losses, val_loss, val_accuracies = evaluate_model(
+            model, val_dataset, config.model.embed_dim, config.model
+        )
+        test_aux_losses, test_loss, test_accuracies = evaluate_model(
+            model, test_dataset, config.model.embed_dim, config.model
+        )
+
+        results = {
+            "checkpoint_step": step,
+            "val": {
+                "loss": float(val_loss),
+                "acc/bf_distance": float(val_accuracies[0]),
+                "acc/bf_predecessor": float(val_accuracies[1]),
+                "acc/bfs_state": float(val_accuracies[2]),
+                "acc/bf_termination": float(val_accuracies[3]),
+                "acc/bfs_termination": float(val_accuracies[4]),
+                "losses/bf_distance": float(val_aux_losses[0]),
+                "losses/bf_predecessor": float(val_aux_losses[1]),
+                "losses/bfs_state": float(val_aux_losses[2]),
+                "losses/bf_termination": float(val_aux_losses[3]),
+                "losses/bfs_termination": float(val_aux_losses[4]),
+            },
+            "test": {
+                "loss": float(test_loss),
+                "acc/bf_distance": float(test_accuracies[0]),
+                "acc/bf_predecessor": float(test_accuracies[1]),
+                "acc/bfs_state": float(test_accuracies[2]),
+                "acc/bf_termination": float(test_accuracies[3]),
+                "acc/bfs_termination": float(test_accuracies[4]),
+                "losses/bf_distance": float(test_aux_losses[0]),
+                "losses/bf_predecessor": float(test_aux_losses[1]),
+                "losses/bfs_state": float(test_aux_losses[2]),
+                "losses/bf_termination": float(test_aux_losses[3]),
+                "losses/bfs_termination": float(test_aux_losses[4]),
+            },
+        }
+
+        print(f"Val loss: {val_loss:.6f}")
+        print(
+            f"Val accuracies: BF_dist={val_accuracies[0]:.3f}, "
+            f"BF_pred={val_accuracies[1]:.3f}, BFS={val_accuracies[2]:.3f}"
+        )
+        print(f"Test loss: {test_loss:.6f}")
+        print(
+            f"Test accuracies: BF_dist={test_accuracies[0]:.3f}, "
+            f"BF_pred={test_accuracies[1]:.3f}, BFS={test_accuracies[2]:.3f}"
+        )
+
+        output_dir = run_dir / "analysis" if run_dir else Path("analysis")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        with open(output_dir / "eval_only.json", "w") as f:
+            json.dump(results, f, indent=2)
+        print(f"\nSaved eval-only results to: {output_dir / 'eval_only.json'}")
+        return
+
     # Setup run directory
     run_dir = setup_run_directory(config, resume=args.resume, run_dir=args.run_dir)
-    
+
     # Set seed for reproducibility
     set_seed(config.training.seed)
-    
+
     # Initialize logger
     logger = MetricsLogger(
         log_file=run_dir / "metrics.jsonl",
@@ -413,25 +566,25 @@ def main():
         wandb_entity=config.logging.wandb_entity if config.logging.wandb_entity else None,
         wandb_config=config.to_dict(),
     )
-    
+
     # Load datasets
     print("\nLoading datasets...")
     train_dataset = load_dataset(config.data.train_path)
     val_dataset = load_dataset(config.data.val_path)
     test_dataset = load_dataset(config.data.test_path)
     print(f"Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
-    
+
     # Create model
     print("\nCreating model...")
     model = create_model(config)
     model.train()
-    
+
     # Create optimizer
     optimizer = optim.Adam(learning_rate=config.training.learning_rate)
-    
+
     # Setup checkpoint manager
     checkpoint_manager = CheckpointManager(run_dir / "checkpoints")
-    
+
     # Resume from checkpoint if requested
     start_epoch = 0
     if args.resume:
@@ -446,11 +599,19 @@ def main():
         except Exception as e:
             print(f"\nWarning: Could not load checkpoint: {e}")
             print("Starting from scratch")
-    
+
     # Training loop
     print("\nStarting training...")
     print("=" * 80)
-    
+    print(f"Configured epochs: {config.training.epochs}")
+
+    if start_epoch >= config.training.epochs:
+        print(
+            f"\nConfig epochs ({config.training.epochs}) already reached "
+            f"by checkpoint epoch {start_epoch}. Skipping training loop."
+        )
+        start_epoch = config.training.epochs
+
     for epoch in range(start_epoch, config.training.epochs):
         # Train for one epoch
         train_loss, train_aux_losses = train_epoch(
@@ -462,26 +623,27 @@ def main():
             max_grad_norm=config.training.max_grad_norm,
             logger=logger,
             epoch=epoch,
+            termination_cfg=config.model,
             log_interval=config.logging.log_interval,
         )
-        
+
         # Evaluation
         if (epoch + 1) % config.training.eval_interval == 0:
             print(f"\nEvaluating at epoch {epoch}...")
-            
+
             # Validation
             val_aux_losses, val_loss, val_accuracies = evaluate_model(
-                model, val_dataset, config.model.embed_dim
+                model, val_dataset, config.model.embed_dim, config.model
             )
-            
+
             # Train subsample (for fair comparison with validation)
             train_subsample_size = len(val_dataset)
             train_subsample_indices = mx.random.permutation(len(train_dataset))[:train_subsample_size]
             train_subsample = [train_dataset[int(idx.item())] for idx in train_subsample_indices]
             _, _, train_accuracies = evaluate_model(
-                model, train_subsample, config.model.embed_dim
+                model, train_subsample, config.model.embed_dim, config.model
             )
-            
+
             # Log validation metrics
             val_metrics = {
                 "loss": float(val_loss),
@@ -497,7 +659,7 @@ def main():
                 "losses/bfs_termination": float(val_aux_losses[4]),
             }
             logger.log(epoch, val_metrics, split="val")
-            
+
             # Log train accuracies
             train_acc_metrics = {
                 "acc/bf_distance": float(train_accuracies[0]),
@@ -507,23 +669,25 @@ def main():
                 "acc/bfs_termination": float(train_accuracies[4]),
             }
             logger.log(epoch, train_acc_metrics, split="train_eval")
-            
+
             print(f"Val loss: {val_loss:.6f}")
-            print(f"Val accuracies: BF_dist={val_accuracies[0]:.3f}, "
-                  f"BF_pred={val_accuracies[1]:.3f}, BFS={val_accuracies[2]:.3f}")
-        
+            print(
+                f"Val accuracies: BF_dist={val_accuracies[0]:.3f}, "
+                f"BF_pred={val_accuracies[1]:.3f}, BFS={val_accuracies[2]:.3f}"
+            )
+
         # Checkpointing
         if config.logging.save_checkpoints and (epoch + 1) % config.logging.checkpoint_interval == 0:
             print(f"Saving checkpoint at epoch {epoch}...")
             checkpoint_manager.save(model, optimizer, epoch, metadata={'epoch': epoch})
-    
+
     # Final evaluation on test set
     print("\n" + "=" * 80)
     print("Final evaluation on test set...")
     test_aux_losses, test_loss, test_accuracies = evaluate_model(
-        model, test_dataset, config.model.embed_dim
+        model, test_dataset, config.model.embed_dim, config.model
     )
-    
+
     test_metrics = {
         "loss": float(test_loss),
         "acc/bf_distance": float(test_accuracies[0]),
@@ -534,7 +698,7 @@ def main():
     }
     logger.log(config.training.epochs, test_metrics, split="test")
     logger.log_summary({"final_" + k: v for k, v in test_metrics.items()})
-    
+
     print(f"\nTest Results:")
     print(f"  Loss: {test_loss:.6f}")
     print(f"  BF Distance Acc: {test_accuracies[0]:.3f}")
@@ -542,7 +706,7 @@ def main():
     print(f"  BFS State Acc: {test_accuracies[2]:.3f}")
     print(f"  BF Termination Acc: {test_accuracies[3]:.3f}")
     print(f"  BFS Termination Acc: {test_accuracies[4]:.3f}")
-    
+
     # Final checkpoint
     if config.logging.save_checkpoints:
         print("\nSaving final checkpoint...")
@@ -550,11 +714,11 @@ def main():
             model, optimizer, config.training.epochs,
             metadata={'epoch': config.training.epochs, 'final': True}
         )
-    
+
     # Cleanup old checkpoints (keep last 5)
     if config.logging.save_checkpoints:
         checkpoint_manager.cleanup_old_checkpoints(keep_last_n=5)
-    
+
     logger.finish()
     print("\n" + "=" * 80)
     print(f"Training complete! Results saved to: {run_dir}")

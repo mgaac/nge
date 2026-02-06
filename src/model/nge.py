@@ -248,7 +248,7 @@ class NGE(nn.Module):
             dropout,
         )
 
-    def __call__(self, data):
+    def __call__(self, data, return_latents: bool = False):
         node_embeddings, connection_matrix = data
 
         bfs_encoded_embeddings = self.bfs_encoder(node_embeddings)
@@ -273,5 +273,14 @@ class NGE(nn.Module):
         bf_termination_prob = self.bf_termination(avg_embeddings).squeeze()
 
         termination_probs = {"bfs": bfs_termination_prob, "bf": bf_termination_prob}
+
+        if return_latents:
+            aux = {
+                "bfs_encoded": bfs_encoded_embeddings,
+                "bf_encoded": bf_encoded_embeddings,
+                "encoded": encoded_embeddings,
+                "avg_processed": avg_embeddings,
+            }
+            return bfs_output, bf_output, termination_probs, processed_embeddings, aux
 
         return bfs_output, bf_output, termination_probs, processed_embeddings

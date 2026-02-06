@@ -18,6 +18,10 @@ class ModelConfig:
     agg_fn: str = "MAX"  # SUM, AVG, MIN, MAX
     num_mp_layers: int = 2
     dropout: float = 0.1
+    termination_mode: str = "head"  # head, distance
+    termination_distance_latent: str = "processed"  # processed, encoded
+    termination_distance: str = "mean_l2"  # l2, mean_l2, l1, mse
+    termination_distance_threshold: float = 0.01
 
 
 @dataclass
@@ -143,6 +147,27 @@ def validate_config(config: ExperimentConfig) -> None:
     
     if not 0 <= config.model.dropout < 1:
         raise ValueError(f"dropout must be in [0, 1), got {config.model.dropout}")
+
+    if config.model.termination_mode not in ["head", "distance"]:
+        raise ValueError(f"Invalid termination_mode: {config.model.termination_mode}")
+
+    if config.model.termination_distance_latent not in ["processed", "encoded"]:
+        raise ValueError(
+            "termination_distance_latent must be 'processed' or 'encoded', "
+            f"got {config.model.termination_distance_latent}"
+        )
+
+    if config.model.termination_distance not in ["l2", "mean_l2", "l1", "mse"]:
+        raise ValueError(
+            "termination_distance must be one of: l2, mean_l2, l1, mse. "
+            f"Got {config.model.termination_distance}"
+        )
+
+    if config.model.termination_distance_threshold < 0:
+        raise ValueError(
+            "termination_distance_threshold must be non-negative, "
+            f"got {config.model.termination_distance_threshold}"
+        )
     
     # Validate training config
     if config.training.epochs <= 0:

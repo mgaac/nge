@@ -245,7 +245,12 @@ def pca_fit_transform(
 
 
 def plot_scatter(
-    points: np.ndarray, colors: np.ndarray, output_path: Path, title: str, color_label: str
+    points: np.ndarray,
+    colors: np.ndarray,
+    output_path: Path,
+    title: str,
+    color_label: str,
+    explained_ratio: np.ndarray,
 ) -> None:
     import matplotlib
 
@@ -265,6 +270,10 @@ def plot_scatter(
     fig.colorbar(scatter, ax=ax, label=color_label)
     ax.set_xlabel("PC1")
     ax.set_ylabel("PC2")
+    if explained_ratio.size >= 2:
+        pc1 = explained_ratio[0] * 100.0
+        pc2 = explained_ratio[1] * 100.0
+        title = f"{title} (PC1 {pc1:.1f}%, PC2 {pc2:.1f}%)"
     ax.set_title(title)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -380,6 +389,7 @@ def main() -> None:
                     output_dir / "pca_trajectory.png",
                     "Trajectory-wise PCA",
                     "graph",
+                    payload["explained_variance_ratio"],
                 )
 
         if args.pca in ("step", "both"):
@@ -392,6 +402,7 @@ def main() -> None:
                     output_dir / "pca_step.png",
                     "Step-wise PCA",
                     "step",
+                    payload["explained_variance_ratio"],
                 )
 
     print(f"Saved outputs to: {output_dir}")

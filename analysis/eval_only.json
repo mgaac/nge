@@ -1,0 +1,29 @@
+{
+  "checkpoint_step": 10,
+  "val": {
+    "loss": 5.764045238494873,
+    "acc/bf_distance": 0.651160717010498,
+    "acc/bf_predecessor": 0.8595739006996155,
+    "acc/bfs_state": 0.988352358341217,
+    "acc/bf_termination": 0.7899167537689209,
+    "acc/bfs_termination": 0.6949048638343811,
+    "losses/bf_distance": 0.014311418868601322,
+    "losses/bf_predecessor": 1.1808533668518066,
+    "losses/bfs_state": 0.11073830723762512,
+    "losses/bf_termination": 1.9134533405303955,
+    "losses/bfs_termination": 3.856862783432007
+  },
+  "test": {
+    "loss": 5.961398124694824,
+    "acc/bf_distance": 0.6528001427650452,
+    "acc/bf_predecessor": 0.8615322113037109,
+    "acc/bfs_state": 0.9888333082199097,
+    "acc/bf_termination": 0.7840000987052917,
+    "acc/bfs_termination": 0.6880002021789551,
+    "losses/bf_distance": 0.013645714148879051,
+    "losses/bf_predecessor": 1.1858323812484741,
+    "losses/bfs_state": 0.10835061967372894,
+    "losses/bf_termination": 2.020094871520996,
+    "losses/bfs_termination": 3.959592580795288
+  }
+}

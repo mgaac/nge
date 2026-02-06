@@ -62,7 +62,7 @@ NGE consists of:
   - BF distance head (regression),
   - BF predecessor head (edge‑wise logits),
   - BFS state head (reachability logits).
-- **Termination heads:** separate BF and BFS termination logits computed from mean processed embeddings.
+- **Termination heads:** separate BF and BFS logits computed from mean processed embeddings; optionally replaced by distance‑based termination with a fixed threshold on successive embedding change.
 
 ## Training workflow
 Training runs are entirely config‑driven and produce reproducible artifacts.
@@ -71,7 +71,7 @@ Per‑step losses (computed when a target exists for that step):
 - BF distance: MSE on normalized distances.
 - BF predecessor: cross‑entropy on valid nodes only (masking `-1`).
 - BFS state: binary cross‑entropy on reachability.
-- BF/BFS termination: binary cross‑entropy on termination logits.
+- BF/BFS termination: binary cross‑entropy on termination logits (head‑based) or distance‑based logits (fixed threshold minus successive‑embedding distance).
 
 Training outputs include:
 - run directory naming with timestamp + git SHA (+ dirty hash),
@@ -86,7 +86,37 @@ Training outputs include:
 --config   Path to a YAML experiment config (required)
 --resume   Resume from the latest run in runs/ (uses resolved config in that run)
 --run-dir  Explicit run directory to resume (only with --resume)
+--eval-only  Skip training and run evaluation only (requires --run-dir or --checkpoint)
+--checkpoint Checkpoint directory or file to load (for --eval-only)
 ```
+
+## Termination Modes
+Termination can be configured in `model`:
+- `termination_mode`: `head` (default) or `distance`
+- `termination_distance_latent`: `processed` or `encoded`
+- `termination_distance`: `l2`, `mean_l2`, `l1`, `mse`
+- `termination_distance_threshold`: fixed threshold for distance mode
+
+## Analysis
+### Latent convergence (`src.analysis.latent_convergence`)
+Measures how embeddings change over execution.
+Key options:
+- `--mode successive` (step‑to‑step change) or `--mode to_final` (distance to final step)
+- `--converge-threshold` and `--converge-patience` to estimate convergence step
+
+### Embedding trajectories + PCA (`src.analysis.embedding_trajectories`)
+Extracts trajectories and produces trajectory‑wise and step‑wise PCA.
+Key options:
+- `--latent` (`processed` or `encoded`) to choose which embeddings are tracked
+- `--node-agg` (`max`, `min`, `mean`) to collapse node dimension per step
+- `--step-policy` (`common`, `fixed`, `min`, `max`) to align graphs by execution length
+- `--steps` when using `--step-policy fixed`
+- `--pca` (`none`, `step`, `trajectory`, `both`) and `--pca-components`
+- `--plot` to save 2D scatter plots with explained variance in the title
+Outputs:
+- `trajectories.npz` (N x T x D + flattened matrices + indices)
+- `pca_step.npz` / `pca_trajectory.npz` with projections, components, mean, variance
+- Optional plots in the output directory
 
 ### Latent convergence analysis (`src.analysis.latent_convergence`)
 ```text
@@ -165,4 +195,3 @@ logging:
 - `set_seed` for deterministic MLX RNG.
 - `meta.json` captures git SHA/branch/dirty hash and environment info (Python + MLX versions, platform, hostname).
 - Resolved configs are stored per‑run (`config_resolved.yaml`).
-

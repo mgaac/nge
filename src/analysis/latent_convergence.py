@@ -111,6 +111,25 @@ def parse_args() -> argparse.Namespace:
         help="Input type passed to custom distance function.",
     )
     parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["successive", "to_final"],
+        default="successive",
+        help="Distance mode: successive step changes or distance to final step.",
+    )
+    parser.add_argument(
+        "--converge-threshold",
+        type=float,
+        default=None,
+        help="Optional distance threshold to define convergence.",
+    )
+    parser.add_argument(
+        "--converge-patience",
+        type=int,
+        default=1,
+        help="Number of consecutive steps below threshold to mark convergence.",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default=None,
@@ -173,19 +192,16 @@ def load_custom_distance_fn(path: str) -> DistanceFn:
     return fn
 
 
-def compute_distance_sequence(
+def compute_latent_sequence(
     model: NGE,
     graph_data: dict,
     embed_dim: int,
     latent_kind: str,
-    distance_fn: Callable,
-    distance_input: str,
     extra_steps: int,
-) -> List[float]:
+) -> List[mx.array]:
     num_nodes = graph_data["num_nodes"]
     previous_step_hidden_states = mx.zeros([num_nodes, 2 * embed_dim])
-    distances: List[float] = []
-    previous_latent = None
+    latents: List[mx.array] = []
 
     for true_bfs_state, true_distance_bf in iter_execution_inputs(graph_data, extra_steps):
         node_algo_features = mx.stack([true_bfs_state, true_distance_bf], axis=1)
@@ -202,22 +218,72 @@ def compute_distance_sequence(
         else:
             raise ValueError(f"Unknown latent kind: {latent_kind}")
 
-        if previous_latent is not None:
-            if distance_input == "mx":
-                value = distance_fn(previous_latent, latent)
-            else:
-                prev_np = np.array(previous_latent, copy=False)
-                curr_np = np.array(latent, copy=False)
-                value = distance_fn(prev_np, curr_np)
-            if hasattr(value, "item"):
-                value = value.item()
-            value = float(value)
-            distances.append(value)
-
-        previous_latent = latent
+        latents.append(latent)
         previous_step_hidden_states = processed_embeddings
 
-    return distances
+    return latents
+
+
+def compute_distance_sequence(
+    latents: List[mx.array],
+    distance_fn: Callable,
+    distance_input: str,
+    mode: str,
+) -> List[float]:
+    if not latents:
+        return []
+
+    distances: List[float] = []
+
+    if mode == "successive":
+        previous_latent = None
+        for latent in latents:
+            if previous_latent is not None:
+                if distance_input == "mx":
+                    value = distance_fn(previous_latent, latent)
+                else:
+                    prev_np = np.array(previous_latent, copy=False)
+                    curr_np = np.array(latent, copy=False)
+                    value = distance_fn(prev_np, curr_np)
+                if hasattr(value, "item"):
+                    value = value.item()
+                distances.append(float(value))
+            previous_latent = latent
+        return distances
+
+    if mode == "to_final":
+        final_latent = latents[-1]
+        for latent in latents:
+            if distance_input == "mx":
+                value = distance_fn(latent, final_latent)
+            else:
+                curr_np = np.array(latent, copy=False)
+                final_np = np.array(final_latent, copy=False)
+                value = distance_fn(curr_np, final_np)
+            if hasattr(value, "item"):
+                value = value.item()
+            distances.append(float(value))
+        return distances
+
+    raise ValueError(f"Unknown distance mode: {mode}")
+
+
+def first_convergence_step(
+    distances: List[float], threshold: float, patience: int
+) -> int | None:
+    if threshold is None or not distances:
+        return None
+    if patience <= 0:
+        patience = 1
+    consecutive = 0
+    for idx, value in enumerate(distances, start=1):
+        if value <= threshold:
+            consecutive += 1
+        else:
+            consecutive = 0
+        if consecutive >= patience:
+            return idx - patience + 1
+    return None
 
 
 def aggregate_distance_series(series_list: List[List[float]]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -330,18 +396,28 @@ def main() -> None:
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    distance_series = [
-        compute_distance_sequence(
+    distance_series = []
+    convergence_steps: List[int | None] = []
+    for graph in graphs:
+        latents = compute_latent_sequence(
             model=model,
             graph_data=graph,
             embed_dim=config.model.embed_dim,
             latent_kind=args.latent,
-            distance_fn=distance_fn,
-            distance_input=distance_input,
             extra_steps=args.extra_steps,
         )
-        for graph in graphs
-    ]
+        distances = compute_distance_sequence(
+            latents=latents,
+            distance_fn=distance_fn,
+            distance_input=distance_input,
+            mode=args.mode,
+        )
+        distance_series.append(distances)
+        convergence_steps.append(
+            first_convergence_step(
+                distances, args.converge_threshold, args.converge_patience
+            )
+        )
 
     metadata = {
         "config_name": config.name,
@@ -349,7 +425,10 @@ def main() -> None:
         "latent": args.latent,
         "distance": distance_label,
         "distance_input": args.distance_input,
+        "mode": args.mode,
         "extra_steps": args.extra_steps,
+        "converge_threshold": args.converge_threshold,
+        "converge_patience": args.converge_patience,
         "dataset": str(dataset_path),
         "split": args.split if args.dataset is None else None,
         "num_graphs": len(graphs),
@@ -364,7 +443,11 @@ def main() -> None:
         )
         write_json(
             output_dir / f"graph_{args.graph_index}_distances.json",
-            {"distances": distances, "metadata": metadata},
+            {
+                "distances": distances,
+                "convergence_step": convergence_steps[0],
+                "metadata": metadata,
+            },
         )
     else:
         mean, std, counts = aggregate_distance_series(distance_series)
@@ -379,6 +462,7 @@ def main() -> None:
                 "mean": mean.tolist(),
                 "std": std.tolist(),
                 "counts": counts.tolist(),
+                "convergence_steps": convergence_steps,
                 "metadata": metadata,
             },
         )
