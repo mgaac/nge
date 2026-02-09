@@ -11,10 +11,10 @@ model:
   termination_mode: distance
   termination_distance_latent: processed
   termination_distance: l2
-  termination_distance_threshold: 20
+  termination_distance_threshold: 6
 
 traning:
-  epochs: 10 
+  epochs: 500 
   learning_rate: 1.0e-5
   max_grad_norm: 1.0
   batch_size: 10

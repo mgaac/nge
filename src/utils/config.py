@@ -22,6 +22,7 @@ class ModelConfig:
     termination_distance_latent: str = "processed"  # processed, encoded
     termination_distance: str = "mean_l2"  # l2, mean_l2, l1, mse
     termination_distance_threshold: float = 0.01
+    termination_distance_signal: bool = True
 
 
 @dataclass
@@ -167,6 +168,12 @@ def validate_config(config: ExperimentConfig) -> None:
         raise ValueError(
             "termination_distance_threshold must be non-negative, "
             f"got {config.model.termination_distance_threshold}"
+        )
+
+    if not isinstance(config.model.termination_distance_signal, bool):
+        raise ValueError(
+            "termination_distance_signal must be boolean, "
+            f"got {type(config.model.termination_distance_signal).__name__}"
         )
     
     # Validate training config

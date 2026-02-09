@@ -86,9 +86,19 @@ Training outputs include:
 --config   Path to a YAML experiment config (required)
 --resume   Resume from the latest run in runs/ (uses resolved config in that run)
 --run-dir  Explicit run directory to resume (only with --resume)
+--tasks    Tasks to optimize/evaluate: all|bf|bfs (default: all)
 --eval-only  Skip training and run evaluation only (requires --run-dir or --checkpoint)
 --checkpoint Checkpoint directory or file to load (for --eval-only)
+--termination-threshold  Override termination_distance_threshold
+--disable-distance-termination-signal  Disable BCE termination supervision in distance mode
 ```
+Task mapping:
+- `bf` trains/evaluates BF distance, BF predecessor, BF termination
+- `bfs` trains/evaluates BFS state, BFS termination
+- `all` enables both groups
+Notes:
+- In `--eval-only`, `--config` takes precedence over `--run-dir/config_resolved.yaml`.
+- Threshold affects termination only when `termination_mode: distance`.
 
 ## Termination Modes
 Termination can be configured in `model`:
@@ -96,6 +106,7 @@ Termination can be configured in `model`:
 - `termination_distance_latent`: `processed` or `encoded`
 - `termination_distance`: `l2`, `mean_l2`, `l1`, `mse`
 - `termination_distance_threshold`: fixed threshold for distance mode
+- `termination_distance_signal`: whether termination BCE supervision is applied in distance mode
 
 ## Analysis
 ### Latent convergence (`src.analysis.latent_convergence`)
@@ -132,6 +143,9 @@ Outputs:
 --distance       Built‑in distance metric (l2|l1|mse|cosine|mean_l2)
 --distance-fn    Custom distance function module:function (overrides --distance)
 --distance-input Input type for custom distance (numpy|mx)
+--mode           Distance mode (successive|to_final)
+--converge-threshold  Optional threshold for convergence detection
+--converge-patience   Consecutive below-threshold steps to mark convergence
 --output-dir     Output directory for plots + JSON
 --title          Optional plot title override
 ```
@@ -159,6 +173,11 @@ model:
   agg_fn: <SUM|AVG|MIN|MAX>
   num_mp_layers: <int>
   dropout: <float>
+  termination_mode: <head|distance>
+  termination_distance_latent: <processed|encoded>
+  termination_distance: <l2|mean_l2|l1|mse>
+  termination_distance_threshold: <float>
+  termination_distance_signal: <bool>
 training:
   epochs: <int>
   learning_rate: <float>

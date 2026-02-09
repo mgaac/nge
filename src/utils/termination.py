@@ -14,6 +14,7 @@ def resolve_termination_settings(cfg: Any | None) -> Dict[str, Any]:
             "distance_latent": "processed",
             "distance_type": "mean_l2",
             "distance_threshold": 0.01,
+            "distance_signal": True,
         }
 
     return {
@@ -21,6 +22,7 @@ def resolve_termination_settings(cfg: Any | None) -> Dict[str, Any]:
         "distance_latent": getattr(cfg, "termination_distance_latent", "processed"),
         "distance_type": getattr(cfg, "termination_distance", "mean_l2"),
         "distance_threshold": getattr(cfg, "termination_distance_threshold", 0.01),
+        "distance_signal": getattr(cfg, "termination_distance_signal", True),
     }
 
 
@@ -67,5 +69,5 @@ def compute_distance_termination_logits(
 ) -> Dict[str, mx.array]:
     prev_latent = init_previous_latent(prev_latent, current_latent)
     distance = compute_latent_distance(prev_latent, current_latent, settings["distance_type"])
-    threshold = mx.array(settings["distance_threshold"])
+    threshold = mx.array(settings["distance_threshold"]) 
     return {"bf": threshold - distance, "bfs": threshold - distance}

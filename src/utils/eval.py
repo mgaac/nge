@@ -16,6 +16,23 @@ from src.utils.termination import (
     resolve_termination_settings,
 )
 
+
+def _normalize_selected_tasks(selected_tasks=None):
+    if selected_tasks is None:
+        return {"bf": True, "bfs": True}
+    return {"bf": bool(selected_tasks.get("bf", False)), "bfs": bool(selected_tasks.get("bfs", False))}
+
+
+def _effective_step_count(bf_steps: int, bfs_steps: int, selected_tasks: dict[str, bool]) -> int:
+    if selected_tasks["bf"] and selected_tasks["bfs"]:
+        return max(bf_steps, bfs_steps, 1)
+    if selected_tasks["bf"]:
+        return max(bf_steps, 1)
+    if selected_tasks["bfs"]:
+        return max(bfs_steps, 1)
+    return 1
+
+
 def extract_per_head_magnitude_grads(grads):
     """Extract the L2 norm of gradients for each model component.
     
@@ -199,6 +216,8 @@ def print_execution_details(model, graph_data, embedding_dim, termination_cfg=No
                 reduction='mean',
                 with_logits=True,
             )
+            if termination_settings["mode"] == "distance" and not termination_settings["distance_signal"]:
+                bf_termination_loss = mx.array(0.0)
             
             # BF Termination Accuracy
             bf_term_pred = mx.sigmoid(termination_logits['bf']) > 0.5  # Use sigmoid + 0.5 threshold
@@ -260,6 +279,8 @@ def print_execution_details(model, graph_data, embedding_dim, termination_cfg=No
                 reduction='mean',
                 with_logits=True,
             )
+            if termination_settings["mode"] == "distance" and not termination_settings["distance_signal"]:
+                bfs_termination_loss = mx.array(0.0)
             
             # BFS Termination Accuracy
             bfs_term_pred = mx.sigmoid(termination_logits['bfs']) > 0.5
@@ -370,7 +391,13 @@ def print_execution_details(model, graph_data, embedding_dim, termination_cfg=No
     return average_loss, per_head_norms
 
 
-def calculate_losses_and_accuracies(model, graph_data, embedding_dim=128, termination_cfg=None):
+def calculate_losses_and_accuracies(
+    model,
+    graph_data,
+    embedding_dim=128,
+    termination_cfg=None,
+    selected_tasks=None,
+):
     """
     Rewritten from scratch to match the exact loss computation logic from train.py.
     Returns: (aux_losses[5], total_loss, accuracies[5])
@@ -399,6 +426,18 @@ def calculate_losses_and_accuracies(model, graph_data, embedding_dim=128, termin
     
     termination_settings = resolve_termination_settings(termination_cfg)
     previous_distance_latent = None
+
+    selected_tasks = _normalize_selected_tasks(selected_tasks)
+    loss_mask = mx.array(
+        [
+            1.0 if selected_tasks["bf"] else 0.0,
+            1.0 if selected_tasks["bf"] else 0.0,
+            1.0 if selected_tasks["bfs"] else 0.0,
+            1.0 if selected_tasks["bf"] else 0.0,
+            1.0 if selected_tasks["bfs"] else 0.0,
+        ],
+        dtype=mx.float32,
+    )
 
     for i in range(num_steps):
         # Check if samples exist - exactly as in train.py
@@ -459,7 +498,7 @@ def calculate_losses_and_accuracies(model, graph_data, embedding_dim=128, termin
             termination_logits = termination_probs
         
         # Compute losses and accuracies
-        if bf_sample_exists:
+        if bf_sample_exists and selected_tasks["bf"]:
             bf_distance_predictions, bf_predecessor_predictions = bf_output
             
             # BF Distance Loss - exactly as in train.py
@@ -499,6 +538,8 @@ def calculate_losses_and_accuracies(model, graph_data, embedding_dim=128, termin
                 reduction='mean',
                 with_logits=True,
             )
+            if termination_settings["mode"] == "distance" and not termination_settings["distance_signal"]:
+                bf_termination_loss = mx.array(0.0)
             
             # BF Termination Accuracy - since loss uses raw logits, we apply sigmoid for accuracy
             bf_term_prob = mx.sigmoid(termination_logits['bf'])
@@ -511,7 +552,7 @@ def calculate_losses_and_accuracies(model, graph_data, embedding_dim=128, termin
             bf_predecessor_loss = mx.array(0.0)
             bf_termination_loss = mx.array(0.0)
             
-        if bfs_sample_exists:
+        if bfs_sample_exists and selected_tasks["bfs"]:
             # BFS State Loss - exactly as in train.py
             bfs_state_loss = nn.losses.binary_cross_entropy(bfs_output, target_bfs_state, reduction='mean', with_logits=True)
             
@@ -529,6 +570,8 @@ def calculate_losses_and_accuracies(model, graph_data, embedding_dim=128, termin
                 reduction='mean',
                 with_logits=True,
             )
+            if termination_settings["mode"] == "distance" and not termination_settings["distance_signal"]:
+                bfs_termination_loss = mx.array(0.0)
             
             # BFS Termination Accuracy
             bfs_term_prob = mx.sigmoid(termination_logits['bfs'])
@@ -541,7 +584,10 @@ def calculate_losses_and_accuracies(model, graph_data, embedding_dim=128, termin
             bfs_termination_loss = mx.array(0.0)
             
         # Accumulate losses - exactly as in train.py
-        raw_losses = mx.array([bf_distance_loss, bf_predecessor_loss, bfs_state_loss, bf_termination_loss, bfs_termination_loss])
+        raw_losses = mx.array(
+            [bf_distance_loss, bf_predecessor_loss, bfs_state_loss, bf_termination_loss, bfs_termination_loss]
+        )
+        raw_losses = raw_losses * loss_mask
         total_step_loss = mx.sum(raw_losses)
         accumulated_loss += total_step_loss
         accumulated_aux_losses += raw_losses
@@ -552,7 +598,7 @@ def calculate_losses_and_accuracies(model, graph_data, embedding_dim=128, termin
     # Calculate averages - exactly as in train.py
     bf_steps = max(num_bf_steps - 1, 0)
     bfs_steps = max(num_bfs_steps - 1, 0)
-    effective_steps = max(bf_steps, bfs_steps, 1)
+    effective_steps = _effective_step_count(bf_steps, bfs_steps, selected_tasks)
     
     average_loss = accumulated_loss / effective_steps
     
@@ -578,7 +624,13 @@ def calculate_losses_and_accuracies(model, graph_data, embedding_dim=128, termin
     return avg_aux_losses, average_loss, accuracies
 
 
-def calculate_accuracies(model, graph_data, embedding_dim=128, termination_cfg=None):
+def calculate_accuracies(
+    model,
+    graph_data,
+    embedding_dim=128,
+    termination_cfg=None,
+    selected_tasks=None,
+):
     """
     Calculate only accuracies, following the exact same logic as calculate_losses_and_accuracies_v2.
     Returns: accuracies[5] array
@@ -604,6 +656,8 @@ def calculate_accuracies(model, graph_data, embedding_dim=128, termination_cfg=N
     
     termination_settings = resolve_termination_settings(termination_cfg)
     previous_distance_latent = None
+
+    selected_tasks = _normalize_selected_tasks(selected_tasks)
 
     for i in range(num_steps):
         # Check if samples exist
@@ -664,7 +718,7 @@ def calculate_accuracies(model, graph_data, embedding_dim=128, termination_cfg=N
             termination_logits = termination_probs
         
         # Calculate accuracies
-        if bf_sample_exists:
+        if bf_sample_exists and selected_tasks["bf"]:
             bf_distance_predictions, bf_predecessor_predictions = bf_output
             
             # BF Distance Accuracy
@@ -689,7 +743,7 @@ def calculate_accuracies(model, graph_data, embedding_dim=128, termination_cfg=N
             bf_termination_correct_sum += bf_term_correct
             bf_termination_total_sum += 1
             
-        if bfs_sample_exists:
+        if bfs_sample_exists and selected_tasks["bfs"]:
             # BFS State Accuracy
             bfs_state_probs = mx.sigmoid(bfs_output)
             bfs_state_pred = (bfs_state_probs > 0.5).astype(mx.float32)

@@ -52,7 +52,35 @@ def parse_args():
                         help='Checkpoint directory or file to load (for --eval-only)')
     parser.add_argument('--eval-only', action='store_true',
                         help='Skip training and run evaluation only')
+    parser.add_argument('--tasks', type=str, default='all', choices=['all', 'bf', 'bfs'],
+                        help='Tasks to optimize/evaluate: all, bf, or bfs')
+    parser.add_argument('--termination-threshold', type=float, default=None,
+                        help='Override termination_distance_threshold (useful in --eval-only)')
+    parser.add_argument('--disable-distance-termination-signal', action='store_true',
+                        help='Disable termination BCE supervision when termination_mode=distance')
     return parser.parse_args()
+
+
+def resolve_selected_tasks(tasks_arg: str) -> dict[str, bool]:
+    """Resolve CLI task selection into task enable flags."""
+    if tasks_arg == "all":
+        return {"bf": True, "bfs": True}
+    if tasks_arg == "bf":
+        return {"bf": True, "bfs": False}
+    if tasks_arg == "bfs":
+        return {"bf": False, "bfs": True}
+    raise ValueError(f"Unknown tasks selection: {tasks_arg}")
+
+
+def effective_step_count(bf_steps: int, bfs_steps: int, selected_tasks: dict[str, bool]) -> int:
+    """Choose the averaging denominator based on selected tasks."""
+    if selected_tasks["bf"] and selected_tasks["bfs"]:
+        return max(bf_steps, bfs_steps, 1)
+    if selected_tasks["bf"]:
+        return max(bf_steps, 1)
+    if selected_tasks["bfs"]:
+        return max(bfs_steps, 1)
+    return 1
 
 
 def setup_run_directory(config: ExperimentConfig, resume: bool = False, run_dir: str = None) -> Path:
@@ -135,7 +163,7 @@ def create_model(config: ExperimentConfig) -> NGE:
     return model
 
 
-def graph_execution_loss_fn(model, graph_data, embed_dim, termination_cfg):
+def graph_execution_loss_fn(model, graph_data, embed_dim, termination_cfg, selected_tasks):
     """Compute loss for graph execution task.
     
     Args:
@@ -159,6 +187,17 @@ def graph_execution_loss_fn(model, graph_data, embed_dim, termination_cfg):
     termination_settings = resolve_termination_settings(termination_cfg)
     previous_distance_latent = None
     
+    loss_mask = mx.array(
+        [
+            1.0 if selected_tasks["bf"] else 0.0,
+            1.0 if selected_tasks["bf"] else 0.0,
+            1.0 if selected_tasks["bfs"] else 0.0,
+            1.0 if selected_tasks["bf"] else 0.0,
+            1.0 if selected_tasks["bfs"] else 0.0,
+        ],
+        dtype=mx.float32,
+    )
+
     for i in range(num_steps):
         # Check if samples exist
         bf_sample_exists = (i + 1) < num_bf_steps
@@ -218,7 +257,7 @@ def graph_execution_loss_fn(model, graph_data, embed_dim, termination_cfg):
             termination_logits = termination_probs
 
         # Compute losses
-        if bf_sample_exists:
+        if bf_sample_exists and selected_tasks["bf"]:
             bf_distance_predictions, bf_predecessor_predictions = bf_output
             bf_distance_loss = nn.losses.mse_loss(bf_distance_predictions, target_distance_bf, reduction='mean')
 
@@ -240,12 +279,14 @@ def graph_execution_loss_fn(model, graph_data, embed_dim, termination_cfg):
                 reduction='mean',
                 with_logits=True,
             )
+            if termination_settings["mode"] == "distance" and not termination_settings["distance_signal"]:
+                bf_termination_loss = mx.array(0.0)
         else:
             bf_distance_loss = mx.array(0.0)
             bf_predecessor_loss = mx.array(0.0)
             bf_termination_loss = mx.array(0.0)
 
-        if bfs_sample_exists:
+        if bfs_sample_exists and selected_tasks["bfs"]:
             bfs_state_loss = nn.losses.binary_cross_entropy(bfs_output, target_bfs_state, reduction='mean', with_logits=True)
             bfs_termination_loss = nn.losses.binary_cross_entropy(
                 termination_logits['bfs'],
@@ -253,11 +294,16 @@ def graph_execution_loss_fn(model, graph_data, embed_dim, termination_cfg):
                 reduction='mean',
                 with_logits=True,
             )
+            if termination_settings["mode"] == "distance" and not termination_settings["distance_signal"]:
+                bfs_termination_loss = mx.array(0.0)
         else:
             bfs_state_loss = mx.array(0.0)
             bfs_termination_loss = mx.array(0.0)
 
-        raw_losses = mx.array([bf_distance_loss, bf_predecessor_loss, bfs_state_loss, bf_termination_loss, bfs_termination_loss])
+        raw_losses = mx.array(
+            [bf_distance_loss, bf_predecessor_loss, bfs_state_loss, bf_termination_loss, bfs_termination_loss]
+        )
+        raw_losses = raw_losses * loss_mask
         total_step_loss = mx.sum(raw_losses)
 
         # Update for next step
@@ -268,7 +314,7 @@ def graph_execution_loss_fn(model, graph_data, embed_dim, termination_cfg):
     # Compute averages
     bf_steps  = max(num_bf_steps  - 1, 0)
     bfs_steps = max(num_bfs_steps - 1, 0)
-    effective_steps = max(bf_steps, bfs_steps, 1)
+    effective_steps = effective_step_count(bf_steps, bfs_steps, selected_tasks)
 
     average_loss = accumulated_loss / effective_steps
     per_task_counter = mx.array([
@@ -283,7 +329,7 @@ def graph_execution_loss_fn(model, graph_data, embed_dim, termination_cfg):
     return average_loss, avg_aux_losses
 
 
-def evaluate_model(model, dataset, embed_dim, termination_cfg):
+def evaluate_model(model, dataset, embed_dim, termination_cfg, selected_tasks):
     """Evaluate model on a dataset.
     
     Args:
@@ -291,6 +337,7 @@ def evaluate_model(model, dataset, embed_dim, termination_cfg):
         dataset: List of graph data dictionaries
         embed_dim: Embedding dimension
         termination_cfg: ModelConfig controlling termination behavior
+        selected_tasks: Dict with task enable flags for bf/bfs
         
     Returns:
         Tuple of (avg_aux_losses, avg_loss, avg_accuracies)
@@ -303,7 +350,7 @@ def evaluate_model(model, dataset, embed_dim, termination_cfg):
 
     for graph_data in dataset:
         aux_losses, loss, accuracies = calculate_losses_and_accuracies(
-            model, graph_data, embed_dim, termination_cfg
+            model, graph_data, embed_dim, termination_cfg, selected_tasks
         )
         accumulated_epoch_loss += loss
         accumulated_aux_losses += aux_losses
@@ -327,6 +374,7 @@ def train_epoch(
     logger: MetricsLogger,
     epoch: int,
     termination_cfg,
+    selected_tasks,
     log_interval: int = 1,
 ):
     """Train for one epoch.
@@ -341,6 +389,7 @@ def train_epoch(
         logger: Metrics logger
         epoch: Current epoch number
         termination_cfg: ModelConfig controlling termination behavior
+        selected_tasks: Dict with task enable flags for bf/bfs
         log_interval: How often to log metrics
         
     Returns:
@@ -363,7 +412,7 @@ def train_epoch(
         graph_data = dataset[int(idx.item())]
         
         (loss, aux_losses), grads = loss_and_grad_fn(
-            model, graph_data, embed_dim, termination_cfg
+            model, graph_data, embed_dim, termination_cfg, selected_tasks
         )
         
         per_head_magnitude_grads = extract_per_head_magnitude_grads(grads)
@@ -441,12 +490,13 @@ def main():
     run_dir = Path(args.run_dir) if args.run_dir else None
     config_path = None
     if args.eval_only:
-        if run_dir is not None:
+        # In eval-only mode, explicit --config takes precedence over --run-dir config.
+        if args.config:
+            config_path = Path(args.config)
+        elif run_dir is not None:
             config_path = run_dir / "config_resolved.yaml"
             if not config_path.exists():
                 raise FileNotFoundError(f"Missing config_resolved.yaml in run dir: {run_dir}")
-        elif args.config:
-            config_path = Path(args.config)
         else:
             raise ValueError("Provide --run-dir or --config for --eval-only.")
     else:
@@ -461,9 +511,35 @@ def main():
 
     config = load_config(config_path)
     validate_config(config)
+    if args.termination_threshold is not None:
+        if args.termination_threshold < 0:
+            raise ValueError("--termination-threshold must be non-negative.")
+        config.model.termination_distance_threshold = float(args.termination_threshold)
+    if args.disable_distance_termination_signal:
+        config.model.termination_distance_signal = False
+    selected_tasks = resolve_selected_tasks(args.tasks)
 
     print("=" * 80)
     print(f"Experiment: {config.name}")
+    print(f"Selected tasks: {args.tasks}")
+    print(
+        "Termination settings: "
+        f"mode={config.model.termination_mode}, "
+        f"distance={config.model.termination_distance}, "
+        f"latent={config.model.termination_distance_latent}, "
+        f"threshold={config.model.termination_distance_threshold}, "
+        f"distance_signal={config.model.termination_distance_signal}"
+    )
+    if args.termination_threshold is not None and config.model.termination_mode != "distance":
+        print(
+            "Note: --termination-threshold is set but termination_mode is not 'distance'; "
+            "threshold does not affect termination logits in head mode."
+        )
+    if args.disable_distance_termination_signal and config.model.termination_mode != "distance":
+        print(
+            "Note: --disable-distance-termination-signal is set but termination_mode is not "
+            "'distance'; this flag has no effect in head mode."
+        )
     print("=" * 80)
 
     if args.eval_only:
@@ -498,14 +574,22 @@ def main():
 
         print("\nRunning evaluation...")
         val_aux_losses, val_loss, val_accuracies = evaluate_model(
-            model, val_dataset, config.model.embed_dim, config.model
+            model, val_dataset, config.model.embed_dim, config.model, selected_tasks
         )
         test_aux_losses, test_loss, test_accuracies = evaluate_model(
-            model, test_dataset, config.model.embed_dim, config.model
+            model, test_dataset, config.model.embed_dim, config.model, selected_tasks
         )
 
         results = {
             "checkpoint_step": step,
+            "selected_tasks": args.tasks,
+            "termination": {
+                "mode": config.model.termination_mode,
+                "distance": config.model.termination_distance,
+                "latent": config.model.termination_distance_latent,
+                "threshold": float(config.model.termination_distance_threshold),
+                "distance_signal": bool(config.model.termination_distance_signal),
+            },
             "val": {
                 "loss": float(val_loss),
                 "acc/bf_distance": float(val_accuracies[0]),
@@ -537,12 +621,14 @@ def main():
         print(f"Val loss: {val_loss:.6f}")
         print(
             f"Val accuracies: BF_dist={val_accuracies[0]:.3f}, "
-            f"BF_pred={val_accuracies[1]:.3f}, BFS={val_accuracies[2]:.3f}"
+            f"BF_pred={val_accuracies[1]:.3f}, BFS={val_accuracies[2]:.3f}, "
+            f"BF_term={val_accuracies[3]:.3f}, BFS_term={val_accuracies[4]:.3f}"
         )
         print(f"Test loss: {test_loss:.6f}")
         print(
             f"Test accuracies: BF_dist={test_accuracies[0]:.3f}, "
-            f"BF_pred={test_accuracies[1]:.3f}, BFS={test_accuracies[2]:.3f}"
+            f"BF_pred={test_accuracies[1]:.3f}, BFS={test_accuracies[2]:.3f}, "
+            f"BF_term={test_accuracies[3]:.3f}, BFS_term={test_accuracies[4]:.3f}"
         )
 
         output_dir = run_dir / "analysis" if run_dir else Path("analysis")
@@ -592,8 +678,14 @@ def main():
             latest_step = checkpoint_manager.get_latest_step()
             if latest_step is not None:
                 print(f"\nResuming from step {latest_step}...")
-                model, optimizer, start_epoch = checkpoint_manager.load(model, optimizer)
-                print(f"Resumed from epoch {start_epoch}")
+                model, optimizer, loaded_epoch = checkpoint_manager.load(model, optimizer)
+                # Checkpoints are saved with the current epoch index.
+                # Resume must continue from the next epoch to avoid repeating work.
+                start_epoch = int(loaded_epoch) + 1
+                print(
+                    f"Loaded checkpoint epoch {loaded_epoch}; "
+                    f"continuing at epoch {start_epoch}"
+                )
             else:
                 print("\nNo checkpoint found, starting from scratch")
         except Exception as e:
@@ -624,6 +716,7 @@ def main():
             logger=logger,
             epoch=epoch,
             termination_cfg=config.model,
+            selected_tasks=selected_tasks,
             log_interval=config.logging.log_interval,
         )
 
@@ -633,7 +726,7 @@ def main():
 
             # Validation
             val_aux_losses, val_loss, val_accuracies = evaluate_model(
-                model, val_dataset, config.model.embed_dim, config.model
+                model, val_dataset, config.model.embed_dim, config.model, selected_tasks
             )
 
             # Train subsample (for fair comparison with validation)
@@ -641,7 +734,7 @@ def main():
             train_subsample_indices = mx.random.permutation(len(train_dataset))[:train_subsample_size]
             train_subsample = [train_dataset[int(idx.item())] for idx in train_subsample_indices]
             _, _, train_accuracies = evaluate_model(
-                model, train_subsample, config.model.embed_dim, config.model
+                model, train_subsample, config.model.embed_dim, config.model, selected_tasks
             )
 
             # Log validation metrics
@@ -685,7 +778,7 @@ def main():
     print("\n" + "=" * 80)
     print("Final evaluation on test set...")
     test_aux_losses, test_loss, test_accuracies = evaluate_model(
-        model, test_dataset, config.model.embed_dim, config.model
+        model, test_dataset, config.model.embed_dim, config.model, selected_tasks
     )
 
     test_metrics = {
