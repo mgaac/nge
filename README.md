@@ -22,6 +22,14 @@ Generate datasets (writes `train_dataset.npz`, `val_dataset.npz`, `test_dataset.
 python -m src.data.dataset
 ```
 
+Build a dataset containing only graphs with a specific BF/BFS execution-length relation (for example, unequal lengths):
+```bash
+python -m src.data.filter_execution_length \
+  --input data/train_dataset.npz \
+  --output data/train_dataset_unequal_exec.npz \
+  --relation unequal
+```
+
 Train:
 ```bash
 python -m src.train --config configs/baseline.yaml
@@ -51,6 +59,7 @@ Synthetic graphs are sampled per graph as either:
 Edges are made bidirectional, and self‑loops are added. Uniform random edge weights are appended (default range `[0.2, 1.0]`). For each graph, the generator logs:
 - Bellman‑Ford distance targets and predecessor targets (with a `-1` sentinel for invalid predecessors).
 - BFS reachability targets.
+- Optional filtering utility for execution-length relation (`unequal`, `equal`, `bf_gt_bfs`, `bfs_gt_bf`): `src.data.filter_execution_length`.
 
 Datasets are saved as compressed `.npz` files with per‑graph keys (e.g., `edge_matrix_0`, `bf_distance_targets_0`, ...).
 
@@ -90,6 +99,7 @@ Training outputs include:
 --eval-only  Skip training and run evaluation only (requires --run-dir or --checkpoint)
 --checkpoint Checkpoint directory or file to load (for --eval-only)
 --termination-threshold  Override termination_distance_threshold
+--termination-latent  Override termination_distance_latent
 --disable-distance-termination-signal  Disable BCE termination supervision in distance mode
 ```
 Task mapping:
@@ -103,7 +113,7 @@ Notes:
 ## Termination Modes
 Termination can be configured in `model`:
 - `termination_mode`: `head` (default) or `distance`
-- `termination_distance_latent`: `processed` or `encoded`
+- `termination_distance_latent`: `processed`, `encoded`, `encoded_bfs`, or `encoded_bf`
 - `termination_distance`: `l2`, `mean_l2`, `l1`, `mse`
 - `termination_distance_threshold`: fixed threshold for distance mode
 - `termination_distance_signal`: whether termination BCE supervision is applied in distance mode
@@ -113,17 +123,30 @@ Termination can be configured in `model`:
 Measures how embeddings change over execution.
 Key options:
 - `--mode successive` (step‑to‑step change) or `--mode to_final` (distance to final step)
+- `--latent` to choose representation:
+  - `processed`: processor output
+  - `encoded`: concatenated encoder outputs after layer norm
+  - `encoded_bfs`: BFS encoder output only
+  - `encoded_bf`: BF encoder output only
+  - `processed_zero_bfs_input`: processor output when BFS encoder input is zeroed
+  - `processed_zero_bf_input`: processor output when BF encoder input is zeroed
 - `--converge-threshold` and `--converge-patience` to estimate convergence step
 
 ### Embedding trajectories + PCA (`src.analysis.embedding_trajectories`)
 Extracts trajectories and produces trajectory‑wise and step‑wise PCA.
 Key options:
-- `--latent` (`processed` or `encoded`) to choose which embeddings are tracked
+- `--latent` to choose representation:
+  - `processed`: processor output
+  - `encoded`: concatenated encoder outputs after layer norm
+  - `encoded_bfs`: BFS encoder output only
+  - `encoded_bf`: BF encoder output only
+  - `processed_zero_bfs_input`: processor output when BFS encoder input is zeroed
+  - `processed_zero_bf_input`: processor output when BF encoder input is zeroed
 - `--node-agg` (`max`, `min`, `mean`) to collapse node dimension per step
 - `--step-policy` (`common`, `fixed`, `min`, `max`) to align graphs by execution length
 - `--steps` when using `--step-policy fixed`
 - `--pca` (`none`, `step`, `trajectory`, `both`) and `--pca-components`
-- `--plot` to save 2D scatter plots with explained variance in the title
+- `--plot` to save 2D PCA plots with explained variance in the title; trajectory-wise uses a gradient color mapping, step-wise uses one discrete color per execution step with subtle per-graph connecting lines, and both include legends
 Outputs:
 - `trajectories.npz` (N x T x D + flattened matrices + indices)
 - `pca_step.npz` / `pca_trajectory.npz` with projections, components, mean, variance
@@ -139,7 +162,7 @@ Outputs:
 --graph-index    Analyze a single graph by index
 --max-graphs     Limit number of graphs for dataset stats
 --extra-steps    Run extra steps after termination
---latent         Which latent to probe (processed|encoded)
+--latent         Which latent to probe (processed|encoded|encoded_bfs|encoded_bf|processed_zero_bfs_input|processed_zero_bf_input)
 --distance       Built‑in distance metric (l2|l1|mse|cosine|mean_l2)
 --distance-fn    Custom distance function module:function (overrides --distance)
 --distance-input Input type for custom distance (numpy|mx)
@@ -174,7 +197,7 @@ model:
   num_mp_layers: <int>
   dropout: <float>
   termination_mode: <head|distance>
-  termination_distance_latent: <processed|encoded>
+  termination_distance_latent: <processed|encoded|encoded_bfs|encoded_bf>
   termination_distance: <l2|mean_l2|l1|mse>
   termination_distance_threshold: <float>
   termination_distance_signal: <bool>

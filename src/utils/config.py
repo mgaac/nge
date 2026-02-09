@@ -19,7 +19,7 @@ class ModelConfig:
     num_mp_layers: int = 2
     dropout: float = 0.1
     termination_mode: str = "head"  # head, distance
-    termination_distance_latent: str = "processed"  # processed, encoded
+    termination_distance_latent: str = "processed"  # processed, encoded, encoded_bfs, encoded_bf
     termination_distance: str = "mean_l2"  # l2, mean_l2, l1, mse
     termination_distance_threshold: float = 0.01
     termination_distance_signal: bool = True
@@ -152,9 +152,15 @@ def validate_config(config: ExperimentConfig) -> None:
     if config.model.termination_mode not in ["head", "distance"]:
         raise ValueError(f"Invalid termination_mode: {config.model.termination_mode}")
 
-    if config.model.termination_distance_latent not in ["processed", "encoded"]:
+    if config.model.termination_distance_latent not in [
+        "processed",
+        "encoded",
+        "encoded_bfs",
+        "encoded_bf",
+    ]:
         raise ValueError(
-            "termination_distance_latent must be 'processed' or 'encoded', "
+            "termination_distance_latent must be one of: "
+            "'processed', 'encoded', 'encoded_bfs', 'encoded_bf', "
             f"got {config.model.termination_distance_latent}"
         )
 

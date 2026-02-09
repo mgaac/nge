@@ -56,6 +56,13 @@ def parse_args():
                         help='Tasks to optimize/evaluate: all, bf, or bfs')
     parser.add_argument('--termination-threshold', type=float, default=None,
                         help='Override termination_distance_threshold (useful in --eval-only)')
+    parser.add_argument(
+        '--termination-latent',
+        type=str,
+        default=None,
+        choices=['processed', 'encoded', 'encoded_bfs', 'encoded_bf'],
+        help='Override termination_distance_latent (useful in --eval-only)',
+    )
     parser.add_argument('--disable-distance-termination-signal', action='store_true',
                         help='Disable termination BCE supervision when termination_mode=distance')
     return parser.parse_args()
@@ -515,12 +522,15 @@ def main():
         if args.termination_threshold < 0:
             raise ValueError("--termination-threshold must be non-negative.")
         config.model.termination_distance_threshold = float(args.termination_threshold)
+    if args.termination_latent is not None:
+        config.model.termination_distance_latent = args.termination_latent
     if args.disable_distance_termination_signal:
         config.model.termination_distance_signal = False
     selected_tasks = resolve_selected_tasks(args.tasks)
 
     print("=" * 80)
     print(f"Experiment: {config.name}")
+    print(f"Config source: {config_path}")
     print(f"Selected tasks: {args.tasks}")
     print(
         "Termination settings: "
@@ -534,6 +544,11 @@ def main():
         print(
             "Note: --termination-threshold is set but termination_mode is not 'distance'; "
             "threshold does not affect termination logits in head mode."
+        )
+    if args.termination_latent is not None and config.model.termination_mode != "distance":
+        print(
+            "Note: --termination-latent is set but termination_mode is not 'distance'; "
+            "latent selection does not affect termination logits in head mode."
         )
     if args.disable_distance_termination_signal and config.model.termination_mode != "distance":
         print(

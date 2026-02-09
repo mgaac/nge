@@ -128,3 +128,23 @@ def compute_encoded_embeddings(model: NGE, input_embeddings: mx.array) -> mx.arr
     bf_encoded = model.bf_encoder(input_embeddings)
     encoded = mx.concatenate([bfs_encoded, bf_encoded], axis=1)
     return model.ln(encoded)
+
+
+def compute_forward_latents(
+    model: NGE,
+    input_embeddings: mx.array,
+    edge_matrix: mx.array,
+    zero_bfs_input: bool = False,
+    zero_bf_input: bool = False,
+) -> Tuple[mx.array, mx.array, mx.array, mx.array]:
+    bfs_input = mx.zeros_like(input_embeddings) if zero_bfs_input else input_embeddings
+    bf_input = mx.zeros_like(input_embeddings) if zero_bf_input else input_embeddings
+
+    bfs_encoded = model.bfs_encoder(bfs_input)
+    bf_encoded = model.bf_encoder(bf_input)
+
+    encoded = mx.concatenate([bfs_encoded, bf_encoded], axis=1)
+    encoded = model.ln(encoded)
+
+    processed = model.processor((encoded, edge_matrix))
+    return processed, encoded, bfs_encoded, bf_encoded

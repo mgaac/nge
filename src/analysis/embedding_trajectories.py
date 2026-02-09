@@ -12,7 +12,7 @@ import mlx.core as mx
 import numpy as np
 
 from src.analysis.common import (
-    compute_encoded_embeddings,
+    compute_forward_latents,
     iter_execution_inputs,
     load_model_from_checkpoint,
     resolve_checkpoint_path,
@@ -61,7 +61,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--latent",
         type=str,
-        choices=["processed", "encoded"],
+        choices=[
+            "processed",
+            "encoded",
+            "encoded_bfs",
+            "encoded_bf",
+            "processed_zero_bfs_input",
+            "processed_zero_bf_input",
+        ],
         default="processed",
         help="Which latent representation to collect.",
     )
@@ -176,12 +183,44 @@ def collect_graph_trajectory(
         input_embeddings = mx.concatenate(
             [previous_step_hidden_states, node_algo_features], axis=1
         )
-        _, _, _, processed_embeddings = model((input_embeddings, graph_data["edge_matrix"]))
-
         if latent_kind == "processed":
+            processed_embeddings, _, _, _ = compute_forward_latents(
+                model, input_embeddings, graph_data["edge_matrix"]
+            )
             latent = processed_embeddings
         elif latent_kind == "encoded":
-            latent = compute_encoded_embeddings(model, input_embeddings)
+            processed_embeddings, encoded, _, _ = compute_forward_latents(
+                model, input_embeddings, graph_data["edge_matrix"]
+            )
+            latent = encoded
+        elif latent_kind == "encoded_bfs":
+            processed_embeddings, _, bfs_encoded, _ = compute_forward_latents(
+                model, input_embeddings, graph_data["edge_matrix"]
+            )
+            latent = bfs_encoded
+        elif latent_kind == "encoded_bf":
+            processed_embeddings, _, _, bf_encoded = compute_forward_latents(
+                model, input_embeddings, graph_data["edge_matrix"]
+            )
+            latent = bf_encoded
+        elif latent_kind == "processed_zero_bfs_input":
+            processed_embeddings, _, _, _ = compute_forward_latents(
+                model,
+                input_embeddings,
+                graph_data["edge_matrix"],
+                zero_bfs_input=True,
+                zero_bf_input=False,
+            )
+            latent = processed_embeddings
+        elif latent_kind == "processed_zero_bf_input":
+            processed_embeddings, _, _, _ = compute_forward_latents(
+                model,
+                input_embeddings,
+                graph_data["edge_matrix"],
+                zero_bfs_input=False,
+                zero_bf_input=True,
+            )
+            latent = processed_embeddings
         else:
             raise ValueError(f"Unknown latent kind: {latent_kind}")
 
@@ -244,37 +283,183 @@ def pca_fit_transform(
     return payload, max_components
 
 
-def plot_scatter(
+def _format_title_with_variance(title: str, explained_ratio: np.ndarray) -> str:
+    if explained_ratio.size >= 2:
+        pc1 = explained_ratio[0] * 100.0
+        pc2 = explained_ratio[1] * 100.0
+        return f"{title} (PC1 {pc1:.1f}%, PC2 {pc2:.1f}%)"
+    return title
+
+
+def _build_discrete_color_map(labels: np.ndarray) -> tuple[np.ndarray, dict[int, np.ndarray]]:
+    import matplotlib
+
+    unique_labels = np.unique(labels)
+    base = np.array(matplotlib.colormaps["tab20"](np.linspace(0.0, 1.0, 20)))
+    color_map: dict[int, np.ndarray] = {}
+    for idx, label in enumerate(unique_labels):
+        # Reuse a qualitative palette first, then fall back to a sampled hue palette.
+        if idx < len(base):
+            color = np.array(base[idx], dtype=np.float32)
+        else:
+            frac = (idx - len(base)) / max(len(unique_labels) - len(base), 1)
+            color = np.array(matplotlib.colormaps["hsv"](frac), dtype=np.float32)
+        color_map[int(label)] = color
+    return unique_labels, color_map
+
+
+def plot_trajectory_scatter(
     points: np.ndarray,
-    colors: np.ndarray,
+    graph_labels: np.ndarray,
     output_path: Path,
     title: str,
-    color_label: str,
     explained_ratio: np.ndarray,
 ) -> None:
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
 
+    unique_graphs = np.unique(graph_labels)
+    norm = plt.Normalize(vmin=float(unique_graphs.min()), vmax=float(unique_graphs.max()))
+    cmap = matplotlib.colormaps["viridis"]
     fig, ax = plt.subplots(figsize=(6, 5))
     scatter = ax.scatter(
         points[:, 0],
         points[:, 1],
-        c=colors,
-        s=12,
-        cmap="viridis",
-        alpha=0.8,
-        linewidths=0.0,
+        c=graph_labels,
+        cmap=cmap,
+        norm=norm,
+        s=30,
+        alpha=0.9,
+        linewidths=0.2,
+        edgecolors="black",
     )
-    fig.colorbar(scatter, ax=ax, label=color_label)
+    cbar = fig.colorbar(scatter, ax=ax, label="graph index")
+    cbar.ax.tick_params(labelsize=8)
+
+    mid_graph = unique_graphs[len(unique_graphs) // 2]
+    legend_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="none",
+            markerfacecolor=cmap(norm(float(unique_graphs[0]))),
+            markeredgecolor="black",
+            markeredgewidth=0.2,
+            markersize=6,
+            label=f"graph {int(unique_graphs[0])}",
+        ),
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="none",
+            markerfacecolor=cmap(norm(float(mid_graph))),
+            markeredgecolor="black",
+            markeredgewidth=0.2,
+            markersize=6,
+            label=f"graph {int(mid_graph)}",
+        ),
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="none",
+            markerfacecolor=cmap(norm(float(unique_graphs[-1]))),
+            markeredgecolor="black",
+            markeredgewidth=0.2,
+            markersize=6,
+            label=f"graph {int(unique_graphs[-1])}",
+        ),
+    ]
+    ax.legend(handles=legend_handles, title="Gradient anchors", loc="best", fontsize=8)
+
     ax.set_xlabel("PC1")
     ax.set_ylabel("PC2")
-    if explained_ratio.size >= 2:
-        pc1 = explained_ratio[0] * 100.0
-        pc2 = explained_ratio[1] * 100.0
-        title = f"{title} (PC1 {pc1:.1f}%, PC2 {pc2:.1f}%)"
-    ax.set_title(title)
+    ax.set_title(_format_title_with_variance(title, explained_ratio))
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_step_trajectories(
+    points: np.ndarray,
+    graph_labels: np.ndarray,
+    step_indices: np.ndarray,
+    output_path: Path,
+    title: str,
+    explained_ratio: np.ndarray,
+) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
+    unique_steps, step_color_map = _build_discrete_color_map(step_indices)
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+    for graph_label in np.unique(graph_labels):
+        graph_mask = graph_labels == graph_label
+        graph_points = points[graph_mask]
+        graph_steps = step_indices[graph_mask]
+        order = np.argsort(graph_steps)
+        graph_points = graph_points[order]
+        graph_steps = graph_steps[order]
+
+        # Keep trajectory lines subtle so step colors remain visually dominant.
+        ax.plot(
+            graph_points[:, 0],
+            graph_points[:, 1],
+            color="#5f6368",
+            linewidth=0.45,
+            alpha=0.14,
+            zorder=1,
+        )
+        point_colors = np.array([step_color_map[int(step)] for step in graph_steps])
+        ax.scatter(
+            graph_points[:, 0],
+            graph_points[:, 1],
+            c=point_colors,
+            s=22,
+            alpha=0.9,
+            linewidths=0.2,
+            edgecolors="black",
+            zorder=2,
+        )
+
+    legend_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="none",
+            markerfacecolor=step_color_map[int(step)],
+            markeredgecolor="black",
+            markeredgewidth=0.2,
+            markersize=5,
+            label=f"step {int(step)}",
+        )
+        for step in unique_steps
+    ]
+    if legend_handles:
+        ncols = 1 if len(legend_handles) <= 12 else 2 if len(legend_handles) <= 24 else 3
+        ax.legend(
+            handles=legend_handles,
+            title="Execution step",
+            loc="best",
+            fontsize=7,
+            ncol=ncols,
+            framealpha=0.9,
+        )
+
+    ax.set_xlabel("PC1")
+    ax.set_ylabel("PC2")
+    ax.set_title(_format_title_with_variance(title, explained_ratio))
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(output_path, dpi=200, bbox_inches="tight")
@@ -383,12 +568,11 @@ def main() -> None:
             )
             np.savez(output_dir / "pca_trajectory.npz", **payload)
             if args.plot and used_components >= 2:
-                plot_scatter(
+                plot_trajectory_scatter(
                     payload["projected"],
                     np.array(selected_indices, dtype=np.int32),
                     output_dir / "pca_trajectory.png",
                     "Trajectory-wise PCA",
-                    "graph",
                     payload["explained_variance_ratio"],
                 )
 
@@ -396,12 +580,12 @@ def main() -> None:
             payload, used_components = pca_fit_transform(step_matrix, args.pca_components)
             np.savez(output_dir / "pca_step.npz", **payload)
             if args.plot and used_components >= 2:
-                plot_scatter(
+                plot_step_trajectories(
                     payload["projected"],
+                    graph_indices,
                     step_indices,
                     output_dir / "pca_step.png",
                     "Step-wise PCA",
-                    "step",
                     payload["explained_variance_ratio"],
                 )
 

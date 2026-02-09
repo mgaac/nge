@@ -27,7 +27,7 @@ def resolve_termination_settings(cfg: Any | None) -> Dict[str, Any]:
 
 
 def needs_aux_latents(settings: Dict[str, Any]) -> bool:
-    return settings["mode"] == "distance" and settings["distance_latent"] == "encoded"
+    return settings["mode"] == "distance" and settings["distance_latent"] != "processed"
 
 
 def init_previous_latent(prev_latent: mx.array | None, current_latent: mx.array) -> mx.array:
@@ -39,11 +39,29 @@ def init_previous_latent(prev_latent: mx.array | None, current_latent: mx.array)
 def get_distance_latent(
     settings: Dict[str, Any], processed_embeddings: mx.array, aux: Dict[str, mx.array] | None
 ) -> mx.array:
-    if settings["distance_latent"] == "processed":
+    latent_key = settings["distance_latent"]
+    if latent_key == "processed":
         return processed_embeddings
-    if aux is None or "encoded" not in aux:
-        raise ValueError("Encoded latents requested but not available.")
-    return aux["encoded"]
+    if aux is None:
+        raise ValueError(
+            f"Distance latent '{latent_key}' requested but auxiliary latents are unavailable."
+        )
+    if latent_key == "encoded":
+        if "encoded" not in aux:
+            raise ValueError("Encoded latents requested but not available.")
+        return aux["encoded"]
+    if latent_key == "encoded_bfs":
+        if "bfs_encoded" not in aux:
+            raise ValueError("BFS encoded latents requested but not available.")
+        return aux["bfs_encoded"]
+    if latent_key == "encoded_bf":
+        if "bf_encoded" not in aux:
+            raise ValueError("BF encoded latents requested but not available.")
+        return aux["bf_encoded"]
+    raise ValueError(
+        "Unknown termination_distance_latent. "
+        f"Expected one of: processed, encoded, encoded_bfs, encoded_bf. Got: {latent_key}"
+    )
 
 
 def compute_latent_distance(

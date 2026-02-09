@@ -9,9 +9,9 @@ model:
   num_mp_layers: 2
   dropout: 0.1
   termination_mode: distance
-  termination_distance_latent: processed
+  termination_distance_latent: encoded
   termination_distance: l2
-  termination_distance_threshold: 6
+  termination_distance_threshold: 12
 
 traning:
   epochs: 500 
