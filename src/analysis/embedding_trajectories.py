@@ -53,6 +53,12 @@ def parse_args() -> argparse.Namespace:
         help="Override dataset path (npz).",
     )
     parser.add_argument(
+        "--graph-index",
+        type=int,
+        default=None,
+        help="Analyze a single graph by index (bypasses step-policy filtering).",
+    )
+    parser.add_argument(
         "--max-graphs",
         type=int,
         default=None,
@@ -485,22 +491,31 @@ def main() -> None:
     model.eval()
 
     dataset = load_dataset(dataset_path)
-    graphs = dataset
-    if args.max_graphs is not None:
-        graphs = dataset[: args.max_graphs]
+    if args.graph_index is not None:
+        if args.graph_index < 0 or args.graph_index >= len(dataset):
+            raise IndexError(
+                f"--graph-index out of range: {args.graph_index} (dataset size={len(dataset)})"
+            )
+        selected_indices = [args.graph_index]
+        selected_graphs = [dataset[args.graph_index]]
+        target_steps = count_execution_steps(selected_graphs[0], args.extra_steps)
+    else:
+        graphs = dataset
+        if args.max_graphs is not None:
+            graphs = dataset[: args.max_graphs]
 
-    step_counts = [count_execution_steps(graph, args.extra_steps) for graph in graphs]
-    target_steps = choose_step_count(step_counts, args.step_policy, args.steps)
-    selected_indices = [
-        index for index, steps in enumerate(step_counts) if steps == target_steps
-    ]
+        step_counts = [count_execution_steps(graph, args.extra_steps) for graph in graphs]
+        target_steps = choose_step_count(step_counts, args.step_policy, args.steps)
+        selected_indices = [
+            index for index, steps in enumerate(step_counts) if steps == target_steps
+        ]
 
-    if not selected_indices:
-        raise ValueError(
-            f"No graphs matched step count {target_steps} under policy {args.step_policy}."
-        )
+        if not selected_indices:
+            raise ValueError(
+                f"No graphs matched step count {target_steps} under policy {args.step_policy}."
+            )
 
-    selected_graphs = [graphs[i] for i in selected_indices]
+        selected_graphs = [graphs[i] for i in selected_indices]
 
     trajectories = [
         collect_graph_trajectory(
@@ -548,6 +563,7 @@ def main() -> None:
         "latent": args.latent,
         "node_agg": args.node_agg,
         "step_policy": args.step_policy,
+        "graph_index": args.graph_index,
         "target_steps": target_steps,
         "extra_steps": args.extra_steps,
         "latent_dim": latent_dim,

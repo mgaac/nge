@@ -143,6 +143,7 @@ Key options:
   - `processed_zero_bfs_input`: processor output when BFS encoder input is zeroed
   - `processed_zero_bf_input`: processor output when BF encoder input is zeroed
 - `--node-agg` (`max`, `min`, `mean`) to collapse node dimension per step
+- `--graph-index` to analyze one specific graph (bypasses step-policy filtering)
 - `--step-policy` (`common`, `fixed`, `min`, `max`) to align graphs by execution length
 - `--steps` when using `--step-policy fixed`
 - `--pca` (`none`, `step`, `trajectory`, `both`) and `--pca-components`
@@ -151,6 +152,17 @@ Outputs:
 - `trajectories.npz` (N x T x D + flattened matrices + indices)
 - `pca_step.npz` / `pca_trajectory.npz` with projections, components, mean, variance
 - Optional plots in the output directory
+
+### Termination threshold sweep (`src.analysis.termination_threshold_sweep`)
+Evaluates one checkpoint across a threshold grid and plots test (or chosen split) termination accuracy curves.
+Key options:
+- `--split` (`train`, `val`, `test`; default `test`)
+- `--tasks` (`all`, `bf`, `bfs`)
+- `--termination-latent` to override distance latent (`processed|encoded|encoded_bfs|encoded_bf`)
+- `--thresholds` for an explicit comma-separated list, or `--threshold-min/--threshold-max/--threshold-step` (default `0.005`) for step sweep
+Outputs:
+- `<split>_threshold_vs_termination_accuracy.png` (BF and BFS termination accuracy vs threshold)
+- `<split>_threshold_sweep.json` (thresholds, losses, and accuracies)
 
 ### Latent convergence analysis (`src.analysis.latent_convergence`)
 ```text
