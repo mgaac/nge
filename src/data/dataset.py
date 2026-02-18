@@ -10,6 +10,8 @@ import numpy as np
 
 from math import inf
 from typing import List, Tuple, Union
+import argparse
+from pathlib import Path
 
 
 def erdos_renyi_edge_matrix(num_nodes=20, p=0.2):
@@ -311,16 +313,78 @@ def load_dataset(filename):
     return dataset
 
 
-if __name__ == "__main__":
-    # Only generate and save datasets when this script is run directly
-    print("Generating datasets...")
-    
-    train_dataset = generated_dataset(1500, 20, 0.2, 2)
-    val_dataset = generated_dataset(100, 20, 0.2, 2)
-    test_dataset = generated_dataset(100, 20, 0.2, 2)
+def _parse_args():
+    parser = argparse.ArgumentParser(description="Generate NGE graph datasets.")
+    parser.add_argument(
+        "--preset",
+        action="store_true",
+        help="Generate default train/val/test datasets (1500/100/100 with 20 nodes).",
+    )
+    parser.add_argument(
+        "--num-graphs",
+        type=int,
+        default=None,
+        help="Number of graphs for single-dataset generation.",
+    )
+    parser.add_argument(
+        "--num-nodes",
+        type=int,
+        default=20,
+        help="Number of nodes per graph for single-dataset generation.",
+    )
+    parser.add_argument(
+        "--p",
+        type=float,
+        default=0.2,
+        help="Erdos-Renyi edge probability.",
+    )
+    parser.add_argument(
+        "--m",
+        type=int,
+        default=2,
+        help="Barabasi-Albert attachment parameter.",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output .npz path for single-dataset generation.",
+    )
+    return parser.parse_args()
 
-    save_dataset(train_dataset, "train_dataset.npz")
-    save_dataset(val_dataset, "val_dataset.npz")
-    save_dataset(test_dataset, "test_dataset.npz")
-    
-    print("Datasets saved successfully!")
+
+if __name__ == "__main__":
+    args = _parse_args()
+
+    if args.preset:
+        print("Generating preset datasets...")
+        train_dataset = generated_dataset(1500, 20, 0.2, 2)
+        val_dataset = generated_dataset(100, 20, 0.2, 2)
+        test_dataset = generated_dataset(100, 20, 0.2, 2)
+
+        save_dataset(train_dataset, "train_dataset.npz")
+        save_dataset(val_dataset, "val_dataset.npz")
+        save_dataset(test_dataset, "test_dataset.npz")
+        print("Preset datasets saved: train_dataset.npz, val_dataset.npz, test_dataset.npz")
+    else:
+        if args.num_graphs is None:
+            raise ValueError(
+                "Use --preset for default splits, or provide --num-graphs for a single dataset."
+            )
+        if args.num_graphs <= 0:
+            raise ValueError("--num-graphs must be positive.")
+        if args.num_nodes <= 0:
+            raise ValueError("--num-nodes must be positive.")
+        if args.p <= 0 or args.p >= 1:
+            raise ValueError("--p must be in (0, 1).")
+        if args.m <= 0:
+            raise ValueError("--m must be positive.")
+
+        dataset = generated_dataset(args.num_graphs, args.num_nodes, args.p, args.m)
+        output_path = (
+            Path(args.output)
+            if args.output
+            else Path(f"dataset_{args.num_graphs}g_{args.num_nodes}n.npz")
+        )
+        save_dataset(dataset, output_path)
+        print(f"Saved dataset to {output_path}")

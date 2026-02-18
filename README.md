@@ -19,7 +19,7 @@ pip install -r requirements.txt
 
 Generate datasets (writes `train_dataset.npz`, `val_dataset.npz`, `test_dataset.npz` into the current working directory):
 ```bash
-python -m src.data.dataset
+python -m src.data.dataset --preset
 ```
 
 Build a dataset containing only graphs with a specific BF/BFS execution-length relation (for example, unequal lengths):
@@ -28,6 +28,14 @@ python -m src.data.filter_execution_length \
   --input data/train_dataset.npz \
   --output data/train_dataset_unequal_exec.npz \
   --relation unequal
+```
+
+Generate a custom single dataset (example: 100 graphs with 50 nodes each):
+```bash
+python -m src.data.dataset \
+  --num-graphs 100 \
+  --num-nodes 50 \
+  --output data/dataset_100g_50n.npz
 ```
 
 Train:
@@ -62,6 +70,10 @@ Edges are made bidirectional, and self‑loops are added. Uniform random edge we
 - Optional filtering utility for execution-length relation (`unequal`, `equal`, `bf_gt_bfs`, `bfs_gt_bf`): `src.data.filter_execution_length`.
 
 Datasets are saved as compressed `.npz` files with per‑graph keys (e.g., `edge_matrix_0`, `bf_distance_targets_0`, ...).
+
+Dataset generation modes (`src.data.dataset`):
+- `--preset` generates default `train/val/test` splits (`1500/100/100`, `20` nodes).
+- Custom single dataset uses `--num-graphs`, `--num-nodes`, optional `--p`, `--m`, and `--output`.
 
 ## Model
 NGE consists of:

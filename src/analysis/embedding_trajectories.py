@@ -289,6 +289,24 @@ def pca_fit_transform(
     return payload, max_components
 
 
+def step_pca_mean_coordinates(
+    projected: np.ndarray, step_indices: np.ndarray, num_steps: int
+) -> List[dict]:
+    means: List[dict] = []
+    for step in range(num_steps):
+        mask = step_indices == step
+        if not np.any(mask):
+            continue
+        mean_coord = projected[mask].mean(axis=0)
+        means.append(
+            {
+                "step": int(step),
+                "mean_coordinate": mean_coord.astype(np.float64, copy=False).tolist(),
+            }
+        )
+    return means
+
+
 def _format_title_with_variance(title: str, explained_ratio: np.ndarray) -> str:
     if explained_ratio.size >= 2:
         pc1 = explained_ratio[0] * 100.0
@@ -574,8 +592,8 @@ def main() -> None:
         "trajectory_shape": list(trajectories_tensor.shape),
         "trajectory_matrix_shape": list(trajectory_matrix.shape),
         "step_matrix_shape": list(step_matrix.shape),
+        "step_pca_mean_coordinates": None,
     }
-    write_json(output_dir / "metadata.json", metadata)
 
     if args.pca != "none":
         if args.pca in ("trajectory", "both"):
@@ -595,6 +613,11 @@ def main() -> None:
         if args.pca in ("step", "both"):
             payload, used_components = pca_fit_transform(step_matrix, args.pca_components)
             np.savez(output_dir / "pca_step.npz", **payload)
+            metadata["step_pca_mean_coordinates"] = step_pca_mean_coordinates(
+                projected=payload["projected"],
+                step_indices=step_indices,
+                num_steps=num_steps,
+            )
             if args.plot and used_components >= 2:
                 plot_step_trajectories(
                     payload["projected"],
@@ -604,6 +627,8 @@ def main() -> None:
                     "Step-wise PCA",
                     payload["explained_variance_ratio"],
                 )
+
+    write_json(output_dir / "metadata.json", metadata)
 
     print(f"Saved outputs to: {output_dir}")
 
