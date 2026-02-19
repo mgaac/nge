@@ -6,6 +6,7 @@ Usage:
 """
 
 import argparse
+import contextlib
 import json
 from pathlib import Path
 
@@ -28,8 +29,11 @@ from src.utils import (
     generate_run_name,
     CheckpointManager,
     MetricsLogger,
+    analyze_failure_modes,
+    calculate_accuracies,
     calculate_losses_and_accuracies,
     extract_per_head_magnitude_grads,
+    print_execution_details,
 )
 from src.utils.termination import (
     compute_distance_termination_logits,
@@ -57,6 +61,13 @@ def parse_args():
     parser.add_argument('--termination-threshold', type=float, default=None,
                         help='Override termination_distance_threshold (useful in --eval-only)')
     parser.add_argument(
+        '--termination-mode',
+        type=str,
+        default=None,
+        choices=['head', 'distance'],
+        help='Override termination mode (head or distance).',
+    )
+    parser.add_argument(
         '--termination-latent',
         type=str,
         default=None,
@@ -65,6 +76,52 @@ def parse_args():
     )
     parser.add_argument('--disable-distance-termination-signal', action='store_true',
                         help='Disable termination BCE supervision when termination_mode=distance')
+    parser.add_argument(
+        '--accuracies-only',
+        action='store_true',
+        help='In --eval-only mode, compute and save accuracies only (skip losses).',
+    )
+    parser.add_argument(
+        '--analyze-failures',
+        action='store_true',
+        help='In --eval-only mode, save per-graph failure analysis JSON.',
+    )
+    parser.add_argument(
+        '--failure-split',
+        type=str,
+        default='test',
+        choices=['train', 'val', 'test'],
+        help='Dataset split to analyze when --analyze-failures is enabled.',
+    )
+    parser.add_argument(
+        '--failure-max-graphs',
+        type=int,
+        default=None,
+        help='Optional max number of graphs to inspect for failure analysis.',
+    )
+    parser.add_argument(
+        '--failure-max-records',
+        type=int,
+        default=200,
+        help='Maximum number of failed graph records written to JSON.',
+    )
+    parser.add_argument(
+        '--failure-include-step-details',
+        action='store_true',
+        help='Include per-step mismatch counts in failure analysis output.',
+    )
+    parser.add_argument(
+        '--failure-debug-graphs',
+        type=str,
+        default=None,
+        help='Comma-separated graph indices for detailed debug dumps.',
+    )
+    parser.add_argument(
+        '--failure-debug-top-k',
+        type=int,
+        default=0,
+        help='Also dump debug traces for top-K failed graphs.',
+    )
     return parser.parse_args()
 
 
@@ -88,6 +145,23 @@ def effective_step_count(bf_steps: int, bfs_steps: int, selected_tasks: dict[str
     if selected_tasks["bfs"]:
         return max(bfs_steps, 1)
     return 1
+
+
+def parse_graph_indices(indices_arg: str | None) -> list[int]:
+    """Parse comma-separated graph indices from CLI."""
+    if not indices_arg:
+        return []
+    values = [chunk.strip() for chunk in indices_arg.split(",") if chunk.strip()]
+    indices = []
+    for value in values:
+        try:
+            index = int(value)
+        except ValueError as exc:
+            raise ValueError(f"Invalid graph index: {value}") from exc
+        if index < 0:
+            raise ValueError(f"Graph indices must be non-negative, got {index}")
+        indices.append(index)
+    return sorted(set(indices))
 
 
 def setup_run_directory(config: ExperimentConfig, resume: bool = False, run_dir: str = None) -> Path:
@@ -371,6 +445,24 @@ def evaluate_model(model, dataset, embed_dim, termination_cfg, selected_tasks):
     return avg_aux_losses, avg_epoch_loss, avg_accuracies
 
 
+def evaluate_model_accuracies_only(model, dataset, embed_dim, termination_cfg, selected_tasks):
+    """Evaluate model and return only mean accuracies over the dataset."""
+    model.eval()
+    accumulated_accuracies = mx.zeros([5])
+    for graph_data in dataset:
+        accuracies = calculate_accuracies(
+            model=model,
+            graph_data=graph_data,
+            embedding_dim=embed_dim,
+            termination_cfg=termination_cfg,
+            selected_tasks=selected_tasks,
+        )
+        accumulated_accuracies += accuracies
+    avg_accuracies = accumulated_accuracies / len(dataset)
+    model.train()
+    return avg_accuracies
+
+
 def train_epoch(
     model,
     dataset,
@@ -518,6 +610,8 @@ def main():
 
     config = load_config(config_path)
     validate_config(config)
+    if args.termination_mode is not None:
+        config.model.termination_mode = args.termination_mode
     if args.termination_threshold is not None:
         if args.termination_threshold < 0:
             raise ValueError("--termination-threshold must be non-negative.")
@@ -526,6 +620,12 @@ def main():
         config.model.termination_distance_latent = args.termination_latent
     if args.disable_distance_termination_signal:
         config.model.termination_distance_signal = False
+    if args.failure_max_graphs is not None and args.failure_max_graphs < 0:
+        raise ValueError("--failure-max-graphs must be non-negative.")
+    if args.failure_max_records is not None and args.failure_max_records < 0:
+        raise ValueError("--failure-max-records must be non-negative.")
+    if args.failure_debug_top_k < 0:
+        raise ValueError("--failure-debug-top-k must be non-negative.")
     selected_tasks = resolve_selected_tasks(args.tasks)
 
     print("=" * 80)
@@ -555,6 +655,10 @@ def main():
             "Note: --disable-distance-termination-signal is set but termination_mode is not "
             "'distance'; this flag has no effect in head mode."
         )
+    if args.accuracies_only and not args.eval_only:
+        print("Note: --accuracies-only only affects --eval-only mode.")
+    if args.analyze_failures and not args.eval_only:
+        print("Note: --analyze-failures only affects --eval-only mode.")
     print("=" * 80)
 
     if args.eval_only:
@@ -586,17 +690,68 @@ def main():
         val_dataset = load_dataset(config.data.val_path)
         test_dataset = load_dataset(config.data.test_path)
         print(f"Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
+        output_dir = run_dir / "analysis" if run_dir else Path("analysis")
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         print("\nRunning evaluation...")
-        val_aux_losses, val_loss, val_accuracies = evaluate_model(
-            model, val_dataset, config.model.embed_dim, config.model, selected_tasks
-        )
-        test_aux_losses, test_loss, test_accuracies = evaluate_model(
-            model, test_dataset, config.model.embed_dim, config.model, selected_tasks
-        )
+        if args.accuracies_only:
+            val_accuracies = evaluate_model_accuracies_only(
+                model, val_dataset, config.model.embed_dim, config.model, selected_tasks
+            )
+            test_accuracies = evaluate_model_accuracies_only(
+                model, test_dataset, config.model.embed_dim, config.model, selected_tasks
+            )
+            val_aux_losses = None
+            test_aux_losses = None
+            val_loss = None
+            test_loss = None
+        else:
+            val_aux_losses, val_loss, val_accuracies = evaluate_model(
+                model, val_dataset, config.model.embed_dim, config.model, selected_tasks
+            )
+            test_aux_losses, test_loss, test_accuracies = evaluate_model(
+                model, test_dataset, config.model.embed_dim, config.model, selected_tasks
+            )
+
+        val_payload = {
+            "acc/bf_distance": float(val_accuracies[0]),
+            "acc/bf_predecessor": float(val_accuracies[1]),
+            "acc/bfs_state": float(val_accuracies[2]),
+            "acc/bf_termination": float(val_accuracies[3]),
+            "acc/bfs_termination": float(val_accuracies[4]),
+        }
+        test_payload = {
+            "acc/bf_distance": float(test_accuracies[0]),
+            "acc/bf_predecessor": float(test_accuracies[1]),
+            "acc/bfs_state": float(test_accuracies[2]),
+            "acc/bf_termination": float(test_accuracies[3]),
+            "acc/bfs_termination": float(test_accuracies[4]),
+        }
+        if not args.accuracies_only:
+            val_payload.update(
+                {
+                    "loss": float(val_loss),
+                    "losses/bf_distance": float(val_aux_losses[0]),
+                    "losses/bf_predecessor": float(val_aux_losses[1]),
+                    "losses/bfs_state": float(val_aux_losses[2]),
+                    "losses/bf_termination": float(val_aux_losses[3]),
+                    "losses/bfs_termination": float(val_aux_losses[4]),
+                }
+            )
+            test_payload.update(
+                {
+                    "loss": float(test_loss),
+                    "losses/bf_distance": float(test_aux_losses[0]),
+                    "losses/bf_predecessor": float(test_aux_losses[1]),
+                    "losses/bfs_state": float(test_aux_losses[2]),
+                    "losses/bf_termination": float(test_aux_losses[3]),
+                    "losses/bfs_termination": float(test_aux_losses[4]),
+                }
+            )
 
         results = {
             "checkpoint_step": step,
+            "eval_mode": "accuracies_only" if args.accuracies_only else "full",
             "selected_tasks": args.tasks,
             "termination": {
                 "mode": config.model.termination_mode,
@@ -605,52 +760,85 @@ def main():
                 "threshold": float(config.model.termination_distance_threshold),
                 "distance_signal": bool(config.model.termination_distance_signal),
             },
-            "val": {
-                "loss": float(val_loss),
-                "acc/bf_distance": float(val_accuracies[0]),
-                "acc/bf_predecessor": float(val_accuracies[1]),
-                "acc/bfs_state": float(val_accuracies[2]),
-                "acc/bf_termination": float(val_accuracies[3]),
-                "acc/bfs_termination": float(val_accuracies[4]),
-                "losses/bf_distance": float(val_aux_losses[0]),
-                "losses/bf_predecessor": float(val_aux_losses[1]),
-                "losses/bfs_state": float(val_aux_losses[2]),
-                "losses/bf_termination": float(val_aux_losses[3]),
-                "losses/bfs_termination": float(val_aux_losses[4]),
-            },
-            "test": {
-                "loss": float(test_loss),
-                "acc/bf_distance": float(test_accuracies[0]),
-                "acc/bf_predecessor": float(test_accuracies[1]),
-                "acc/bfs_state": float(test_accuracies[2]),
-                "acc/bf_termination": float(test_accuracies[3]),
-                "acc/bfs_termination": float(test_accuracies[4]),
-                "losses/bf_distance": float(test_aux_losses[0]),
-                "losses/bf_predecessor": float(test_aux_losses[1]),
-                "losses/bfs_state": float(test_aux_losses[2]),
-                "losses/bf_termination": float(test_aux_losses[3]),
-                "losses/bfs_termination": float(test_aux_losses[4]),
-            },
+            "val": val_payload,
+            "test": test_payload,
         }
 
-        print(f"Val loss: {val_loss:.6f}")
+        if not args.accuracies_only:
+            print(f"Val loss: {val_loss:.6f}")
         print(
             f"Val accuracies: BF_dist={val_accuracies[0]:.3f}, "
             f"BF_pred={val_accuracies[1]:.3f}, BFS={val_accuracies[2]:.3f}, "
             f"BF_term={val_accuracies[3]:.3f}, BFS_term={val_accuracies[4]:.3f}"
         )
-        print(f"Test loss: {test_loss:.6f}")
+        if not args.accuracies_only:
+            print(f"Test loss: {test_loss:.6f}")
         print(
             f"Test accuracies: BF_dist={test_accuracies[0]:.3f}, "
             f"BF_pred={test_accuracies[1]:.3f}, BFS={test_accuracies[2]:.3f}, "
             f"BF_term={test_accuracies[3]:.3f}, BFS_term={test_accuracies[4]:.3f}"
         )
 
-        output_dir = run_dir / "analysis" if run_dir else Path("analysis")
-        output_dir.mkdir(parents=True, exist_ok=True)
         with open(output_dir / "eval_only.json", "w") as f:
             json.dump(results, f, indent=2)
         print(f"\nSaved eval-only results to: {output_dir / 'eval_only.json'}")
+
+        if args.analyze_failures:
+            split_to_dataset = {
+                "train": train_dataset,
+                "val": val_dataset,
+                "test": test_dataset,
+            }
+            failure_dataset = split_to_dataset[args.failure_split]
+            failure_report = analyze_failure_modes(
+                model=model,
+                dataset=failure_dataset,
+                embedding_dim=config.model.embed_dim,
+                termination_cfg=config.model,
+                selected_tasks=selected_tasks,
+                max_graphs=args.failure_max_graphs,
+                max_failure_records=args.failure_max_records,
+                include_step_details=args.failure_include_step_details,
+            )
+            failure_report["split"] = args.failure_split
+
+            debug_indices = parse_graph_indices(args.failure_debug_graphs)
+            if args.failure_debug_top_k > 0:
+                debug_indices = sorted(
+                    set(
+                        debug_indices
+                        + failure_report["ranked_failed_graph_indices"][: args.failure_debug_top_k]
+                    )
+                )
+            debug_paths = []
+            if debug_indices:
+                debug_dir = output_dir / "failure_debug" / args.failure_split
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                for graph_index in debug_indices:
+                    if graph_index >= len(failure_dataset):
+                        print(
+                            f"Skipping debug dump for graph {graph_index}: out of range "
+                            f"for split '{args.failure_split}' ({len(failure_dataset)} graphs)."
+                        )
+                        continue
+                    debug_path = debug_dir / f"graph_{graph_index:04d}.txt"
+                    with open(debug_path, "w") as f:
+                        with contextlib.redirect_stdout(f):
+                            print_execution_details(
+                                model=model,
+                                graph_data=failure_dataset[graph_index],
+                                embedding_dim=config.model.embed_dim,
+                                termination_cfg=config.model,
+                            )
+                    debug_paths.append(str(debug_path))
+            failure_report["debug_dump_paths"] = debug_paths
+
+            failure_path = output_dir / f"failure_modes_{args.failure_split}.json"
+            with open(failure_path, "w") as f:
+                json.dump(failure_report, f, indent=2)
+            print(f"Saved failure analysis to: {failure_path}")
+            if debug_paths:
+                print(f"Saved {len(debug_paths)} debug execution traces under: {output_dir / 'failure_debug'}")
         return
 
     # Setup run directory

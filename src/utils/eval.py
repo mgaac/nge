@@ -770,6 +770,283 @@ def calculate_accuracies(
     return mx.array([bf_distance_acc, bf_predecessor_acc, bfs_state_acc, bf_termination_acc, bfs_termination_acc])
 
 
+def _graph_failure_details(
+    model,
+    graph_data,
+    embedding_dim=128,
+    termination_cfg=None,
+    selected_tasks=None,
+    include_step_details=False,
+):
+    """Collect per-graph failure details for error analysis."""
+    selected_tasks = _normalize_selected_tasks(selected_tasks)
+    termination_settings = resolve_termination_settings(termination_cfg)
+
+    num_nodes = int(graph_data["num_nodes"])
+    num_bf_steps = len(graph_data["bf_distance_targets"])
+    num_bfs_steps = len(graph_data["bfs_state_targets"])
+    num_steps = max(num_bf_steps, num_bfs_steps)
+
+    counts = {
+        "bf_distance_correct": 0,
+        "bf_distance_total": 0,
+        "bf_predecessor_correct": 0,
+        "bf_predecessor_total": 0,
+        "bfs_state_correct": 0,
+        "bfs_state_total": 0,
+        "bf_termination_correct": 0,
+        "bf_termination_total": 0,
+        "bfs_termination_correct": 0,
+        "bfs_termination_total": 0,
+    }
+    termination_confusion = {
+        "bf_fp": 0,
+        "bf_fn": 0,
+        "bfs_fp": 0,
+        "bfs_fn": 0,
+    }
+
+    previous_step_hidden_states = mx.zeros([num_nodes, 2 * embedding_dim])
+    previous_distance_latent = None
+
+    step_failures = []
+    first_failure_step = None
+
+    for i in range(num_steps):
+        bf_sample_exists = (i + 1) < num_bf_steps
+        bfs_sample_exists = (i + 1) < num_bfs_steps
+        if not (bf_sample_exists or bfs_sample_exists):
+            continue
+
+        if bfs_sample_exists:
+            true_bfs_state = graph_data["bfs_state_targets"][i]
+            target_bfs_state = graph_data["bfs_state_targets"][i + 1]
+        else:
+            true_bfs_state = graph_data["bfs_state_targets"][-1]
+            target_bfs_state = graph_data["bfs_state_targets"][-1]
+
+        if bf_sample_exists:
+            true_distance_bf = graph_data["bf_distance_targets"][i]
+            target_distance_bf = graph_data["bf_distance_targets"][i + 1]
+            target_predecessor_bf = graph_data["bf_predecessor_targets"][i + 1]
+        else:
+            true_distance_bf = graph_data["bf_distance_targets"][-1]
+            target_distance_bf = graph_data["bf_distance_targets"][-1]
+            target_predecessor_bf = graph_data["bf_predecessor_targets"][-1]
+
+        is_last_bf_step = (i + 1) == (num_bf_steps - 1)
+        is_last_bfs_step = (i + 1) == (num_bfs_steps - 1)
+        termination_targets = {
+            "bf": mx.array(1.0 if is_last_bf_step else 0.0),
+            "bfs": mx.array(1.0 if is_last_bfs_step else 0.0),
+        }
+
+        node_algo_features = mx.stack([true_bfs_state, true_distance_bf], axis=1)
+        input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
+        model_input = (input_embeddings, graph_data["edge_matrix"])
+
+        need_aux = needs_aux_latents(termination_settings)
+        if need_aux:
+            bfs_output, bf_output, termination_probs, processed_embeddings, aux = model(
+                model_input, return_latents=True
+            )
+        else:
+            bfs_output, bf_output, termination_probs, processed_embeddings = model(model_input)
+            aux = None
+
+        if termination_settings["mode"] == "distance":
+            current_latent = get_distance_latent(termination_settings, processed_embeddings, aux)
+            termination_logits = compute_distance_termination_logits(
+                settings=termination_settings,
+                prev_latent=previous_distance_latent,
+                current_latent=current_latent,
+            )
+            previous_distance_latent = current_latent
+        else:
+            termination_logits = termination_probs
+
+        step_entry = {
+            "step": int(i + 1),
+            "bf_distance_incorrect": 0,
+            "bf_predecessor_incorrect": 0,
+            "bfs_state_incorrect": 0,
+            "bf_termination_incorrect": 0,
+            "bfs_termination_incorrect": 0,
+        }
+
+        if bf_sample_exists and selected_tasks["bf"]:
+            bf_distance_predictions, bf_predecessor_predictions = bf_output
+
+            distance_errors = mx.abs(bf_distance_predictions - target_distance_bf)
+            distance_correct = int(mx.sum(distance_errors <= 0.1).item())
+            counts["bf_distance_correct"] += distance_correct
+            counts["bf_distance_total"] += num_nodes
+            step_entry["bf_distance_incorrect"] = int(num_nodes - distance_correct)
+
+            valid_mask = target_predecessor_bf != -1
+            pred_argmax = mx.argmax(bf_predecessor_predictions, axis=-1)
+            pred_correct = int(mx.sum((pred_argmax == target_predecessor_bf) & valid_mask).item())
+            pred_total = int(mx.sum(valid_mask).item())
+            counts["bf_predecessor_correct"] += pred_correct
+            counts["bf_predecessor_total"] += pred_total
+            step_entry["bf_predecessor_incorrect"] = int(max(pred_total - pred_correct, 0))
+
+            bf_term_prob = float(mx.sigmoid(termination_logits["bf"]).item())
+            bf_term_pred = 1 if bf_term_prob > 0.5 else 0
+            bf_term_target = int(termination_targets["bf"].item())
+            bf_term_correct = int(bf_term_pred == bf_term_target)
+            counts["bf_termination_correct"] += bf_term_correct
+            counts["bf_termination_total"] += 1
+            step_entry["bf_termination_incorrect"] = 1 - bf_term_correct
+            if bf_term_pred == 1 and bf_term_target == 0:
+                termination_confusion["bf_fp"] += 1
+            elif bf_term_pred == 0 and bf_term_target == 1:
+                termination_confusion["bf_fn"] += 1
+
+        if bfs_sample_exists and selected_tasks["bfs"]:
+            bfs_state_probs = mx.sigmoid(bfs_output)
+            bfs_state_pred = (bfs_state_probs > 0.5).astype(mx.float32)
+            bfs_correct = int(mx.sum(bfs_state_pred == target_bfs_state).item())
+            counts["bfs_state_correct"] += bfs_correct
+            counts["bfs_state_total"] += num_nodes
+            step_entry["bfs_state_incorrect"] = int(num_nodes - bfs_correct)
+
+            bfs_term_prob = float(mx.sigmoid(termination_logits["bfs"]).item())
+            bfs_term_pred = 1 if bfs_term_prob > 0.5 else 0
+            bfs_term_target = int(termination_targets["bfs"].item())
+            bfs_term_correct = int(bfs_term_pred == bfs_term_target)
+            counts["bfs_termination_correct"] += bfs_term_correct
+            counts["bfs_termination_total"] += 1
+            step_entry["bfs_termination_incorrect"] = 1 - bfs_term_correct
+            if bfs_term_pred == 1 and bfs_term_target == 0:
+                termination_confusion["bfs_fp"] += 1
+            elif bfs_term_pred == 0 and bfs_term_target == 1:
+                termination_confusion["bfs_fn"] += 1
+
+        step_error_units = (
+            step_entry["bf_distance_incorrect"]
+            + step_entry["bf_predecessor_incorrect"]
+            + step_entry["bfs_state_incorrect"]
+            + step_entry["bf_termination_incorrect"]
+            + step_entry["bfs_termination_incorrect"]
+        )
+        if step_error_units > 0:
+            if first_failure_step is None:
+                first_failure_step = int(i + 1)
+            if include_step_details:
+                step_failures.append(step_entry)
+
+        previous_step_hidden_states = processed_embeddings
+
+    accuracies = {
+        "bf_distance": counts["bf_distance_correct"] / max(counts["bf_distance_total"], 1),
+        "bf_predecessor": counts["bf_predecessor_correct"] / max(counts["bf_predecessor_total"], 1),
+        "bfs_state": counts["bfs_state_correct"] / max(counts["bfs_state_total"], 1),
+        "bf_termination": counts["bf_termination_correct"] / max(counts["bf_termination_total"], 1),
+        "bfs_termination": counts["bfs_termination_correct"] / max(counts["bfs_termination_total"], 1),
+    }
+    incorrect = {
+        "bf_distance": counts["bf_distance_total"] - counts["bf_distance_correct"],
+        "bf_predecessor": counts["bf_predecessor_total"] - counts["bf_predecessor_correct"],
+        "bfs_state": counts["bfs_state_total"] - counts["bfs_state_correct"],
+        "bf_termination": counts["bf_termination_total"] - counts["bf_termination_correct"],
+        "bfs_termination": counts["bfs_termination_total"] - counts["bfs_termination_correct"],
+    }
+
+    failed_tasks = []
+    if selected_tasks["bf"] and incorrect["bf_distance"] > 0:
+        failed_tasks.append("bf_distance")
+    if selected_tasks["bf"] and incorrect["bf_predecessor"] > 0:
+        failed_tasks.append("bf_predecessor")
+    if selected_tasks["bfs"] and incorrect["bfs_state"] > 0:
+        failed_tasks.append("bfs_state")
+    if selected_tasks["bf"] and incorrect["bf_termination"] > 0:
+        failed_tasks.append("bf_termination")
+    if selected_tasks["bfs"] and incorrect["bfs_termination"] > 0:
+        failed_tasks.append("bfs_termination")
+
+    return {
+        "num_nodes": num_nodes,
+        "num_bf_steps": int(num_bf_steps),
+        "num_bfs_steps": int(num_bfs_steps),
+        "first_failure_step": first_failure_step,
+        "accuracy": {k: float(v) for k, v in accuracies.items()},
+        "incorrect": {k: int(v) for k, v in incorrect.items()},
+        "termination_confusion": {k: int(v) for k, v in termination_confusion.items()},
+        "failed_tasks": failed_tasks,
+        "total_error_units": int(sum(incorrect.values())),
+        "step_failures": step_failures if include_step_details else None,
+    }
+
+
+def analyze_failure_modes(
+    model,
+    dataset,
+    embedding_dim=128,
+    termination_cfg=None,
+    selected_tasks=None,
+    max_graphs=None,
+    max_failure_records=200,
+    include_step_details=False,
+):
+    """Analyze misclassification patterns and return per-graph failure summaries."""
+    selected_tasks = _normalize_selected_tasks(selected_tasks)
+    termination_settings = resolve_termination_settings(termination_cfg)
+
+    model.eval()
+    graphs = dataset if max_graphs is None else dataset[: max(max_graphs, 0)]
+
+    failures_by_task = {
+        "bf_distance": [],
+        "bf_predecessor": [],
+        "bfs_state": [],
+        "bf_termination": [],
+        "bfs_termination": [],
+    }
+    failed_graphs = []
+    ranked_failed = []
+
+    for graph_index, graph_data in enumerate(graphs):
+        details = _graph_failure_details(
+            model=model,
+            graph_data=graph_data,
+            embedding_dim=embedding_dim,
+            termination_cfg=termination_cfg,
+            selected_tasks=selected_tasks,
+            include_step_details=include_step_details,
+        )
+        if not details["failed_tasks"]:
+            continue
+
+        details["graph_index"] = int(graph_index)
+        for task_name in details["failed_tasks"]:
+            failures_by_task[task_name].append(int(graph_index))
+        ranked_failed.append((int(graph_index), int(details["total_error_units"])))
+
+        if max_failure_records is None or len(failed_graphs) < max_failure_records:
+            failed_graphs.append(details)
+
+    ranked_failed.sort(key=lambda x: (-x[1], x[0]))
+    ranked_failed_graph_indices = [idx for idx, _ in ranked_failed]
+
+    return {
+        "termination": {
+            "mode": termination_settings["mode"],
+            "distance": termination_settings["distance_type"],
+            "latent": termination_settings["distance_latent"],
+            "threshold": float(termination_settings["distance_threshold"]),
+            "distance_signal": bool(termination_settings["distance_signal"]),
+        },
+        "selected_tasks": selected_tasks,
+        "num_graphs_analyzed": int(len(graphs)),
+        "num_failed_graphs": int(len(ranked_failed_graph_indices)),
+        "failure_rate": float(len(ranked_failed_graph_indices) / max(len(graphs), 1)),
+        "failures_by_task": failures_by_task,
+        "ranked_failed_graph_indices": ranked_failed_graph_indices,
+        "failed_graphs": failed_graphs,
+    }
+
+
 def safe_trained_model(model, sample_input_embeddings, sample_edge_matrix, output_path="trained_model.mlxfn"):
     """
     Save trained model for later use.

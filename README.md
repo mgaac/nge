@@ -6,7 +6,7 @@ NGE is a research codebase that trains a message‑passing neural network to exe
 - Data generation: synthetic graph creation (Erdos‑Renyi + Barabasi‑Albert), self‑loops, bidirectional edges, uniform random weights, BF/BFS logging, dataset save/load to `.npz`.
 - Model: MLX MPNN processor + BFS/BF encoders/decoders, termination heads, configurable aggregation (SUM/AVG/MIN/MAX), residual connections, dropout, configurable message‑passing depth.
 - Training: config‑driven runs, per‑step BF/BFS losses, termination losses, optional gradient norm extraction, evaluation at intervals, checkpoints, run metadata, and JSONL metrics logging.
-- Analysis: latent convergence script with per‑step distance curves for single graphs or datasets, optional custom distance functions, plotting + JSON outputs.
+- Analysis: latent convergence, embedding trajectories, threshold sweeps, and eval-only failure mode analysis with per-graph misclassification reports.
 - Reproducibility: deterministic seeding, git + environment metadata, resolved config snapshots.
 - Utilities: metrics history loader, checkpoint manager with latest marker, debug printing of execution details.
 - Tests: workflow and checkpointing tests.
@@ -116,6 +116,15 @@ Training outputs include:
 --tasks    Tasks to optimize/evaluate: all|bf|bfs (default: all)
 --eval-only  Skip training and run evaluation only (requires --run-dir or --checkpoint)
 --checkpoint Checkpoint directory or file to load (for --eval-only)
+--accuracies-only  In --eval-only mode, compute accuracies only (skip losses)
+--analyze-failures  In --eval-only mode, write per-graph failure analysis JSON
+--failure-split  Split for failure analysis: train|val|test (default: test)
+--failure-max-graphs  Optional cap on number of graphs analyzed for failures
+--failure-max-records  Max failed-graph records written to JSON
+--failure-include-step-details  Include per-step mismatch counts per failed graph
+--failure-debug-graphs  Comma-separated graph indices for debug execution traces
+--failure-debug-top-k  Also dump debug traces for top-K failed graphs
+--termination-mode  Override termination mode: head|distance
 --termination-threshold  Override termination_distance_threshold
 --termination-latent  Override termination_distance_latent
 --disable-distance-termination-signal  Disable BCE termination supervision in distance mode
@@ -126,7 +135,24 @@ Task mapping:
 - `all` enables both groups
 Notes:
 - In `--eval-only`, `--config` takes precedence over `--run-dir/config_resolved.yaml`.
-- Threshold affects termination only when `termination_mode: distance`.
+- `--accuracies-only` works for both head-mode and distance-mode checkpoints.
+- You can force evaluation criterion with `--termination-mode distance` (or `head`) regardless of training mode.
+- Threshold/latent overrides affect termination only when the effective mode is `distance`.
+
+Eval-only examples:
+```bash
+# Accuracy-only evaluation for a standard (head-mode) run
+python -m src.train --eval-only --run-dir runs/<run_name> --accuracies-only
+
+# Evaluate the same checkpoint with distance-based termination at custom threshold
+python -m src.train --eval-only --run-dir runs/<run_name> \
+  --accuracies-only --termination-mode distance --termination-threshold 0.01 \
+  --termination-latent processed
+
+# Generate failure report + detailed debug dumps
+python -m src.train --eval-only --run-dir runs/<run_name> --analyze-failures \
+  --failure-split test --failure-debug-top-k 5
+```
 
 ## Termination Modes
 Termination can be configured in `model`:
@@ -176,8 +202,11 @@ Evaluates one checkpoint across a threshold grid and plots test (or chosen split
 Key options:
 - `--split` (`train`, `val`, `test`; default `test`)
 - `--tasks` (`all`, `bf`, `bfs`)
+- `--termination-mode` (`distance` default, or `head`) used during sweep evaluation
 - `--termination-latent` to override distance latent (`processed|encoded|encoded_bfs|encoded_bf`)
 - `--thresholds` for an explicit comma-separated list, or `--threshold-min/--threshold-max/--threshold-step` (default `0.005`) for step sweep
+Notes:
+- Legacy head-trained runs are supported because sweep mode defaults to `distance`.
 Outputs:
 - `<split>_threshold_vs_termination_accuracy.png` (BF and BFS termination accuracy vs threshold)
 - `<split>_threshold_sweep.json` (thresholds, losses, and accuracies)
@@ -260,6 +289,7 @@ logging:
 `src/utils/eval.py` provides:
 - `calculate_losses_and_accuracies` (matches training loss logic).
 - `calculate_accuracies` (accuracy‑only variant).
+- `analyze_failure_modes` (per-graph misclassification analysis and failure ranking).
 - `print_execution_details` (verbose step‑by‑step diagnostics).
 - `extract_per_head_magnitude_grads` (per‑component gradient norms).
 

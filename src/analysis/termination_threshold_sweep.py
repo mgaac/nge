@@ -21,7 +21,10 @@ from src.train import evaluate_model
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Sweep distance-mode termination thresholds and plot BF/BFS termination accuracy."
+        description=(
+            "Sweep termination thresholds and plot BF/BFS termination accuracy. "
+            "By default, sweep evaluation uses distance mode so legacy head-trained runs are supported."
+        )
     )
     parser.add_argument("--config", type=str, default=None, help="Path to YAML config.")
     parser.add_argument(
@@ -55,6 +58,16 @@ def parse_args() -> argparse.Namespace:
         choices=["all", "bf", "bfs"],
         default="all",
         help="Tasks to evaluate: all, bf, or bfs.",
+    )
+    parser.add_argument(
+        "--termination-mode",
+        type=str,
+        choices=["head", "distance"],
+        default="distance",
+        help=(
+            "Termination mode used during the sweep. Default is distance, which "
+            "enables threshold sweeps on legacy head-mode runs."
+        ),
     )
     parser.add_argument(
         "--termination-latent",
@@ -238,10 +251,11 @@ def save_plot(
 def main() -> None:
     args = parse_args()
     config, run_dir = resolve_config(args.config, args.run_dir)
-
-    if config.model.termination_mode != "distance":
-        raise ValueError(
-            "termination_threshold_sweep requires model.termination_mode == 'distance'."
+    original_mode = config.model.termination_mode
+    config.model.termination_mode = args.termination_mode
+    if original_mode != config.model.termination_mode:
+        print(
+            f"Overriding termination mode for sweep: {original_mode} -> {config.model.termination_mode}"
         )
     if args.termination_latent is not None:
         config.model.termination_distance_latent = args.termination_latent
@@ -306,6 +320,7 @@ def main() -> None:
         "tasks": args.tasks,
         "termination": {
             "mode": config.model.termination_mode,
+            "original_mode": original_mode,
             "distance": config.model.termination_distance,
             "latent": config.model.termination_distance_latent,
         },
