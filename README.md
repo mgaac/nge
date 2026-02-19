@@ -197,6 +197,28 @@ Outputs:
 - `pca_step.npz` / `pca_trajectory.npz` with projections, components, mean, variance
 - Optional plots in the output directory
 
+### Execution-length step overlay (`src.analysis.execution_length_step_overlay`)
+Runs `embedding_trajectories` repeatedly for fixed execution lengths and overlays only the **average step coordinate trajectory** from each run.
+Key options:
+- `--run-dir` run containing checkpoints/config
+- `--dataset` optional dataset override (`.npz`)
+- `--latent` representation (`processed|encoded|encoded_bfs|encoded_bf|processed_zero_bfs_input|processed_zero_bf_input`)
+- `--steps-min` / `--steps-max` fixed step-count sweep range
+- `--node-agg` (`max|min|mean`)
+- `--keep-step-plots` to also save each per-step run PCA plot
+Outputs:
+- `analysis/execution_length_step_overlay/avg_step_coordinate_overlay.png`
+- `analysis/execution_length_step_overlay/avg_step_coordinate_overlay.json`
+- per-step metadata under `analysis/execution_length_step_overlay/per_step_runs/steps_XX/`
+Example:
+```bash
+python -m src.analysis.execution_length_step_overlay \
+  --run-dir runs/<run_name> \
+  --dataset data/dataset_20g_200n.npz \
+  --latent processed_zero_bfs_input \
+  --steps-min 0 --steps-max 8
+```
+
 ### Termination threshold sweep (`src.analysis.termination_threshold_sweep`)
 Evaluates one checkpoint across a threshold grid and plots test (or chosen split) termination accuracy curves.
 Key options:
