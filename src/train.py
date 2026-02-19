@@ -807,7 +807,7 @@ def main():
     logger.log(config.training.epochs, test_metrics, split="test")
     logger.log_summary({"final_" + k: v for k, v in test_metrics.items()})
 
-    print(f"\nTest Results:")
+    print("\nTest Results:")
     print(f"  Loss: {test_loss:.6f}")
     print(f"  BF Distance Acc: {test_accuracies[0]:.3f}")
     print(f"  BF Predecessor Acc: {test_accuracies[1]:.3f}")

@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 import mlx.core as mx
-import mlx.nn as nn
 import mlx.optimizers as optim
 
 from src.model import NGE, AggregationFn
@@ -28,7 +27,6 @@ from src.utils import (
     load_config,
     save_config,
     set_seed,
-    get_git_info,
     create_run_metadata,
     save_run_metadata,
     generate_run_name,

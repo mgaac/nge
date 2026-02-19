@@ -6,7 +6,6 @@ This module provides functions for:
 - Recording environment metadata (Python version, MLX version, etc.)
 """
 
-import os
 import sys
 import json
 import hashlib

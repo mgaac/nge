@@ -9,7 +9,7 @@ import networkx as nx
 import numpy as np
 
 from math import inf
-from typing import List, Tuple, Union
+from typing import List, Tuple
 import argparse
 from pathlib import Path
 

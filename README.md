@@ -48,6 +48,12 @@ Resume latest run:
 python -m src.train --config configs/baseline.yaml --resume
 ```
 
+Run code-quality checks:
+```bash
+conda run -n mlx ruff check src tests
+conda run -n mlx python -m compileall -q src tests
+```
+
 ## Project layout
 - `src/model/` – NGE architecture (MPNN + BF/BFS encoders/decoders + termination heads).
 - `src/data/` – synthetic graph generation and dataset save/load.

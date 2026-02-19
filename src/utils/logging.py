@@ -182,9 +182,6 @@ class MetricsLogger:
             return False, f"Error reading log file: {e}"
 
 
-from typing import Tuple  # Add this import at the top
-
-
 def load_metrics_history(log_file: Path) -> Dict[str, list]:
     """Load complete metrics history from JSONL file.
     

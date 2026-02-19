@@ -7,7 +7,6 @@ as well as debugging tools for inspecting model execution.
 import mlx.core as mx
 import mlx.nn as nn
 import mlx.utils as utils
-import numpy as np
 
 from src.utils.termination import (
     compute_distance_termination_logits,
@@ -230,20 +229,20 @@ def print_execution_details(model, graph_data, embedding_dim, termination_cfg=No
             accumulated_bf_termination_norms += bf_termination_norm
             bf_termination_step_count += 1
             
-            print(f"\nBF DISTANCE:")
+            print("\nBF DISTANCE:")
             print(f"  Loss: {bf_distance_loss.item():.6f}")
             print(f"  Accuracy: {bf_distance_correct}/{bf_distance_total} = {bf_distance_correct/bf_distance_total:.3f}")
             print(f"  Predictions (first 10): {bf_distance_predictions[:10].tolist()}")
             print(f"  Targets (first 10): {target_distance_bf[:10].tolist()}")
             
-            print(f"\nBF PREDECESSOR:")
+            print("\nBF PREDECESSOR:")
             print(f"  Loss: {bf_predecessor_loss.item():.6f}")
             print(f"  Accuracy: {bf_predecessor_correct}/{bf_predecessor_total} = {bf_predecessor_correct/max(bf_predecessor_total,1):.3f}")
             print(f"  Valid nodes: {bf_predecessor_total}")
             print(f"  Predictions (argmax, first 10): {pred_argmax[:10].tolist()}")
             print(f"  Targets (first 10): {target_predecessor_bf[:10].tolist()}")
             
-            print(f"\nBF TERMINATION:")
+            print("\nBF TERMINATION:")
             print(f"  Loss: {bf_termination_loss.item():.6f}")
             print(
                 f"  Logit: {termination_logits['bf'].item():.4f}, "
@@ -293,13 +292,13 @@ def print_execution_details(model, graph_data, embedding_dim, termination_cfg=No
             accumulated_bfs_termination_norms += bfs_termination_norm
             bfs_termination_step_count += 1
             
-            print(f"\nBFS STATE:")
+            print("\nBFS STATE:")
             print(f"  Loss: {bfs_state_loss.item():.6f}")
             print(f"  Accuracy: {bfs_state_correct}/{bfs_state_total} = {bfs_state_correct/bfs_state_total:.3f}")
             print(f"  Predictions (first 10): {bfs_state_pred[:10].astype(mx.int32).tolist()}")
             print(f"  Targets (first 10): {target_bfs_state[:10].astype(mx.int32).tolist()}")
             
-            print(f"\nBFS TERMINATION:")
+            print("\nBFS TERMINATION:")
             print(f"  Loss: {bfs_termination_loss.item():.6f}")
             print(
                 f"  Logit: {termination_logits['bfs'].item():.4f}, "
@@ -324,7 +323,7 @@ def print_execution_details(model, graph_data, embedding_dim, termination_cfg=No
         accumulated_hidden_state_norms += hidden_state_norm
         total_step_count += 1
         
-        print(f"\nSTEP SUMMARY:")
+        print("\nSTEP SUMMARY:")
         print(f"  Total step loss: {total_step_loss.item():.6f}")
         print(f"  Hidden state norm: {hidden_state_norm.item():.4f}")
         
@@ -351,18 +350,18 @@ def print_execution_details(model, graph_data, embedding_dim, termination_cfg=No
     overall_bfs_termination_acc = bfs_termination_correct_sum / max(bfs_termination_total_sum, 1)
     
     print(f"\n{'='*80}")
-    print(f"OVERALL SUMMARY")
+    print("OVERALL SUMMARY")
     print(f"{'='*80}")
     print(f"Effective steps for averaging: {effective_steps}")
     print(f"BF steps executed: {bf_steps}, BFS steps executed: {bfs_steps}")
-    print(f"\nAVERAGE LOSSES:")
+    print("\nAVERAGE LOSSES:")
     print(f"  Total: {average_loss.item():.6f}")
     print(f"  BF Distance: {avg_aux_losses[0].item():.6f}")
     print(f"  BF Predecessor: {avg_aux_losses[1].item():.6f}")
     print(f"  BFS State: {avg_aux_losses[2].item():.6f}")
     print(f"  BF Termination: {avg_aux_losses[3].item():.6f}")
     print(f"  BFS Termination: {avg_aux_losses[4].item():.6f}")
-    print(f"\nOVERALL ACCURACIES:")
+    print("\nOVERALL ACCURACIES:")
     print(f"  BF Distance: {overall_bf_distance_acc:.3f} ({bf_distance_correct_sum}/{bf_distance_total_sum})")
     print(f"  BF Predecessor: {overall_bf_predecessor_acc:.3f} ({bf_predecessor_correct_sum}/{bf_predecessor_total_sum})")
     print(f"  BFS State: {overall_bfs_state_acc:.3f} ({bfs_state_correct_sum}/{bfs_state_total_sum})")
