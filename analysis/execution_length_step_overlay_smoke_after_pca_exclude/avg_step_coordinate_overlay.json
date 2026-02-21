@@ -1,0 +1,128 @@
+{
+  "run_dir": "runs/20260208-130950_7993947-dirtyd358aa87_termination",
+  "dataset": "data/val_dataset.npz",
+  "split": "val",
+  "latent": "processed",
+  "node_agg": "max",
+  "steps_min_base": 4,
+  "steps_max_base": 5,
+  "extra_steps": 2,
+  "series": [
+    {
+      "base_steps": 4,
+      "total_steps": 6,
+      "num_graphs": 23,
+      "step_pca_mean_coordinates": [
+        {
+          "step": 0,
+          "mean_coordinate": [
+            -4.4238362312316895,
+            3.1709256172180176
+          ]
+        },
+        {
+          "step": 1,
+          "mean_coordinate": [
+            -2.0508124828338623,
+            -3.319755792617798
+          ]
+        },
+        {
+          "step": 2,
+          "mean_coordinate": [
+            2.9828789234161377,
+            -0.07922349125146866
+          ]
+        },
+        {
+          "step": 3,
+          "mean_coordinate": [
+            3.491769790649414,
+            0.22805286943912506
+          ]
+        },
+        {
+          "step": 4,
+          "mean_coordinate": [
+            3.464674234390259,
+            0.27181437611579895
+          ]
+        },
+        {
+          "step": 5,
+          "mean_coordinate": [
+            3.330610513687134,
+            0.2904718220233917
+          ]
+        }
+      ],
+      "completion_avg_coordinate": [
+        3.4646742037635074,
+        0.271814378053481
+      ],
+      "metadata_path": "analysis/execution_length_step_overlay_smoke_after_pca_exclude/per_step_runs/steps_04/metadata.json"
+    },
+    {
+      "base_steps": 5,
+      "total_steps": 7,
+      "num_graphs": 54,
+      "step_pca_mean_coordinates": [
+        {
+          "step": 0,
+          "mean_coordinate": [
+            -3.923701286315918,
+            -4.156112194061279
+          ]
+        },
+        {
+          "step": 1,
+          "mean_coordinate": [
+            -3.35457181930542,
+            2.7536587715148926
+          ]
+        },
+        {
+          "step": 2,
+          "mean_coordinate": [
+            0.9812965989112854,
+            1.096486210823059
+          ]
+        },
+        {
+          "step": 3,
+          "mean_coordinate": [
+            3.0816760063171387,
+            0.20104673504829407
+          ]
+        },
+        {
+          "step": 4,
+          "mean_coordinate": [
+            3.215301752090454,
+            0.10491667687892914
+          ]
+        },
+        {
+          "step": 5,
+          "mean_coordinate": [
+            3.133448839187622,
+            0.09201177954673767
+          ]
+        },
+        {
+          "step": 6,
+          "mean_coordinate": [
+            3.0034844875335693,
+            0.10031631588935852
+          ]
+        }
+      ],
+      "completion_avg_coordinate": [
+        3.1334484455485843,
+        0.09201179539466142
+      ],
+      "metadata_path": "analysis/execution_length_step_overlay_smoke_after_pca_exclude/per_step_runs/steps_05/metadata.json"
+    }
+  ],
+  "overlay_plot": "analysis/execution_length_step_overlay_smoke_after_pca_exclude/avg_step_coordinate_overlay.png"
+}

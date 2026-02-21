@@ -1,0 +1,96 @@
+{
+  "config_name": "termination",
+  "checkpoint_step": 500,
+  "latent": "processed",
+  "node_agg": "max",
+  "step_policy": "fixed",
+  "graph_index": null,
+  "target_steps": 6,
+  "extra_steps": 2,
+  "latent_dim": 64,
+  "dataset": "data/val_dataset.npz",
+  "split": "val",
+  "num_graphs": 23,
+  "selected_graph_indices": [
+    11,
+    12,
+    16,
+    17,
+    20,
+    23,
+    24,
+    29,
+    31,
+    35,
+    40,
+    43,
+    51,
+    55,
+    59,
+    67,
+    69,
+    87,
+    88,
+    89,
+    93,
+    94,
+    98
+  ],
+  "trajectory_shape": [
+    23,
+    6,
+    64
+  ],
+  "trajectory_matrix_shape": [
+    23,
+    384
+  ],
+  "step_matrix_shape": [
+    138,
+    64
+  ],
+  "step_pca_mean_coordinates": [
+    {
+      "step": 0,
+      "mean_coordinate": [
+        -5.141592979431152,
+        -3.7658956050872803
+      ]
+    },
+    {
+      "step": 1,
+      "mean_coordinate": [
+        -3.5654735565185547,
+        2.851630210876465
+      ]
+    },
+    {
+      "step": 2,
+      "mean_coordinate": [
+        1.7551952600479126,
+        0.4087890684604645
+      ]
+    },
+    {
+      "step": 3,
+      "mean_coordinate": [
+        2.358562707901001,
+        0.20020543038845062
+      ]
+    },
+    {
+      "step": 4,
+      "mean_coordinate": [
+        2.3596510887145996,
+        0.16538360714912415
+      ]
+    },
+    {
+      "step": 5,
+      "mean_coordinate": [
+        2.2336585521698,
+        0.13988633453845978
+      ]
+    }
+  ]
+}

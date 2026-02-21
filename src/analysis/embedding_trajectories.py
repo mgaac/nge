@@ -292,6 +292,11 @@ def pca_fit_transform(
     return payload, max_components
 
 
+def pca_project(data: np.ndarray, components: np.ndarray, mean: np.ndarray) -> np.ndarray:
+    centered = data - mean.reshape(1, -1)
+    return centered @ components.T
+
+
 def step_pca_mean_coordinates(
     projected: np.ndarray, step_indices: np.ndarray, num_steps: int
 ) -> List[dict]:
@@ -420,6 +425,8 @@ def plot_step_trajectories(
     output_path: Path,
     title: str,
     explained_ratio: np.ndarray,
+    completion_probe_points: np.ndarray | None = None,
+    completion_probe_mean: np.ndarray | None = None,
 ) -> None:
     import matplotlib
 
@@ -459,6 +466,31 @@ def plot_step_trajectories(
             zorder=2,
         )
 
+    if completion_probe_points is not None and completion_probe_points.size > 0:
+        ax.scatter(
+            completion_probe_points[:, 0],
+            completion_probe_points[:, 1],
+            marker="X",
+            s=46,
+            color="#d62728",
+            alpha=0.8,
+            linewidths=0.4,
+            edgecolors="black",
+            zorder=3,
+        )
+    if completion_probe_mean is not None and completion_probe_mean.size >= 2:
+        ax.scatter(
+            [completion_probe_mean[0]],
+            [completion_probe_mean[1]],
+            marker="*",
+            s=170,
+            color="#d62728",
+            alpha=0.95,
+            linewidths=0.6,
+            edgecolors="black",
+            zorder=4,
+        )
+
     legend_handles = [
         Line2D(
             [0],
@@ -473,6 +505,34 @@ def plot_step_trajectories(
         )
         for step in unique_steps
     ]
+    if completion_probe_points is not None and completion_probe_points.size > 0:
+        legend_handles.append(
+            Line2D(
+                [0],
+                [0],
+                marker="X",
+                color="none",
+                markerfacecolor="#d62728",
+                markeredgecolor="black",
+                markeredgewidth=0.4,
+                markersize=6,
+                label="terminal probe",
+            )
+        )
+    if completion_probe_mean is not None and completion_probe_mean.size >= 2:
+        legend_handles.append(
+            Line2D(
+                [0],
+                [0],
+                marker="*",
+                color="none",
+                markerfacecolor="#d62728",
+                markeredgecolor="black",
+                markeredgewidth=0.4,
+                markersize=8,
+                label="terminal probe mean",
+            )
+        )
     if legend_handles:
         ncols = 1 if len(legend_handles) <= 12 else 2 if len(legend_handles) <= 24 else 3
         ax.legend(
@@ -554,9 +614,41 @@ def main() -> None:
 
     trajectories_tensor = np.stack(trajectories, axis=0)
     num_graphs, num_steps, latent_dim = trajectories_tensor.shape
+    pca_fit_excludes_extra_steps = args.extra_steps > 0 and num_steps > args.extra_steps
+    pca_fit_steps = num_steps - args.extra_steps if pca_fit_excludes_extra_steps else num_steps
+    pca_fit_tensor = trajectories_tensor[:, :pca_fit_steps, :]
+
+    completion_probe_vectors: List[np.ndarray] = []
+    completion_probe_graph_indices: List[int] = []
+    for graph_index, graph in zip(selected_indices, selected_graphs):
+        probe_trajectory = collect_graph_trajectory(
+            model=model,
+            graph_data=graph,
+            embed_dim=config.model.embed_dim,
+            latent_kind=args.latent,
+            node_agg=args.node_agg,
+            extra_steps=args.extra_steps + 1,
+        )
+        if probe_trajectory.shape[0] == 0:
+            continue
+        completion_probe_vectors.append(probe_trajectory[-1].astype(np.float32, copy=False))
+        completion_probe_graph_indices.append(int(graph_index))
+
+    if completion_probe_vectors:
+        completion_probes = np.stack(completion_probe_vectors, axis=0).astype(
+            np.float32, copy=False
+        )
+        completion_probe_graph_indices_arr = np.array(
+            completion_probe_graph_indices, dtype=np.int32
+        )
+    else:
+        completion_probes = np.empty((0, latent_dim), dtype=np.float32)
+        completion_probe_graph_indices_arr = np.empty((0,), dtype=np.int32)
 
     trajectory_matrix = trajectories_tensor.reshape(num_graphs, num_steps * latent_dim)
+    trajectory_pca_matrix = pca_fit_tensor.reshape(num_graphs, pca_fit_steps * latent_dim)
     step_matrix = trajectories_tensor.reshape(num_graphs * num_steps, latent_dim)
+    step_pca_fit_matrix = pca_fit_tensor.reshape(num_graphs * pca_fit_steps, latent_dim)
     graph_indices, step_indices = build_stepwise_indices(selected_indices, num_steps)
 
     output_dir = (
@@ -578,6 +670,8 @@ def main() -> None:
         graph_indices=graph_indices,
         step_indices=step_indices,
         selected_graph_indices=np.array(selected_indices, dtype=np.int32),
+        completion_probes=completion_probes,
+        completion_probe_graph_indices=completion_probe_graph_indices_arr,
     )
 
     metadata = {
@@ -597,13 +691,21 @@ def main() -> None:
         "trajectory_shape": list(trajectories_tensor.shape),
         "trajectory_matrix_shape": list(trajectory_matrix.shape),
         "step_matrix_shape": list(step_matrix.shape),
+        "pca_fit_excludes_extra_steps": bool(pca_fit_excludes_extra_steps),
+        "pca_fit_steps": int(pca_fit_steps),
+        "pca_fit_step_matrix_shape": list(step_pca_fit_matrix.shape),
+        "pca_fit_trajectory_matrix_shape": list(trajectory_pca_matrix.shape),
         "step_pca_mean_coordinates": None,
+        "completion_probe_shape": list(completion_probes.shape),
+        "completion_probe_graph_indices": completion_probe_graph_indices,
+        "step_pca_completion_probe_mean_coordinate": None,
+        "step_pca_completion_probe_count": int(completion_probes.shape[0]),
     }
 
     if args.pca != "none":
         if args.pca in ("trajectory", "both"):
             payload, used_components = pca_fit_transform(
-                trajectory_matrix, args.pca_components
+                trajectory_pca_matrix, args.pca_components
             )
             np.savez(output_dir / "pca_trajectory.npz", **payload)
             if args.plot and used_components >= 2:
@@ -616,21 +718,51 @@ def main() -> None:
                 )
 
         if args.pca in ("step", "both"):
-            payload, used_components = pca_fit_transform(step_matrix, args.pca_components)
+            fit_payload, used_components = pca_fit_transform(
+                step_pca_fit_matrix, args.pca_components
+            )
+            fit_mean = np.asarray(fit_payload["mean"], dtype=np.float64)
+            fit_components = np.asarray(fit_payload["components"], dtype=np.float64)
+            step_projected_all = pca_project(
+                step_matrix.astype(np.float64),
+                fit_components,
+                fit_mean,
+            ).astype(np.float32, copy=False)
+            payload = dict(fit_payload)
+            payload["projected"] = step_projected_all
             np.savez(output_dir / "pca_step.npz", **payload)
             metadata["step_pca_mean_coordinates"] = step_pca_mean_coordinates(
-                projected=payload["projected"],
+                projected=step_projected_all,
                 step_indices=step_indices,
                 num_steps=num_steps,
             )
+            completion_probe_projected = np.empty((0, used_components), dtype=np.float32)
+            completion_probe_mean = None
+            if completion_probes.shape[0] > 0:
+                completion_probe_projected = pca_project(
+                    completion_probes.astype(np.float64),
+                    fit_components,
+                    fit_mean,
+                ).astype(np.float32, copy=False)
+                completion_probe_mean = completion_probe_projected.mean(axis=0)
+                metadata["step_pca_completion_probe_mean_coordinate"] = (
+                    completion_probe_mean.astype(np.float64).tolist()
+                )
+                np.savez(
+                    output_dir / "pca_step_completion_probes.npz",
+                    projected=completion_probe_projected,
+                    graph_indices=completion_probe_graph_indices_arr,
+                )
             if args.plot and used_components >= 2:
                 plot_step_trajectories(
-                    payload["projected"],
+                    step_projected_all,
                     graph_indices,
                     step_indices,
                     output_dir / "pca_step.png",
                     "Step-wise PCA",
                     payload["explained_variance_ratio"],
+                    completion_probe_points=completion_probe_projected,
+                    completion_probe_mean=completion_probe_mean,
                 )
 
     write_json(output_dir / "metadata.json", metadata)

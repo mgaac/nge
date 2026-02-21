@@ -1,0 +1,140 @@
+{
+  "config_name": "termination",
+  "checkpoint_step": 500,
+  "latent": "processed",
+  "node_agg": "max",
+  "step_policy": "fixed",
+  "graph_index": null,
+  "target_steps": 6,
+  "extra_steps": 2,
+  "latent_dim": 64,
+  "dataset": "data/val_dataset.npz",
+  "split": "val",
+  "num_graphs": 23,
+  "selected_graph_indices": [
+    11,
+    12,
+    16,
+    17,
+    20,
+    23,
+    24,
+    29,
+    31,
+    35,
+    40,
+    43,
+    51,
+    55,
+    59,
+    67,
+    69,
+    87,
+    88,
+    89,
+    93,
+    94,
+    98
+  ],
+  "trajectory_shape": [
+    23,
+    6,
+    64
+  ],
+  "trajectory_matrix_shape": [
+    23,
+    384
+  ],
+  "step_matrix_shape": [
+    138,
+    64
+  ],
+  "pca_fit_excludes_extra_steps": true,
+  "pca_fit_steps": 4,
+  "pca_fit_step_matrix_shape": [
+    92,
+    64
+  ],
+  "pca_fit_trajectory_matrix_shape": [
+    23,
+    256
+  ],
+  "step_pca_mean_coordinates": [
+    {
+      "step": 0,
+      "mean_coordinate": [
+        -4.4238362312316895,
+        3.1709256172180176
+      ]
+    },
+    {
+      "step": 1,
+      "mean_coordinate": [
+        -2.0508124828338623,
+        -3.319755792617798
+      ]
+    },
+    {
+      "step": 2,
+      "mean_coordinate": [
+        2.9828789234161377,
+        -0.07922349125146866
+      ]
+    },
+    {
+      "step": 3,
+      "mean_coordinate": [
+        3.491769790649414,
+        0.22805286943912506
+      ]
+    },
+    {
+      "step": 4,
+      "mean_coordinate": [
+        3.464674234390259,
+        0.27181437611579895
+      ]
+    },
+    {
+      "step": 5,
+      "mean_coordinate": [
+        3.330610513687134,
+        0.2904718220233917
+      ]
+    }
+  ],
+  "completion_probe_shape": [
+    23,
+    64
+  ],
+  "completion_probe_graph_indices": [
+    11,
+    12,
+    16,
+    17,
+    20,
+    23,
+    24,
+    29,
+    31,
+    35,
+    40,
+    43,
+    51,
+    55,
+    59,
+    67,
+    69,
+    87,
+    88,
+    89,
+    93,
+    94,
+    98
+  ],
+  "step_pca_completion_probe_mean_coordinate": [
+    3.1788289546966553,
+    0.2615387439727783
+  ],
+  "step_pca_completion_probe_count": 23
+}

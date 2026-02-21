@@ -307,6 +307,23 @@ def compute_distance_sequence(
     raise ValueError(f"Unknown distance mode: {mode}")
 
 
+def compute_pair_distance(
+    a: mx.array,
+    b: mx.array,
+    distance_fn: Callable,
+    distance_input: str,
+) -> float:
+    if distance_input == "mx":
+        value = distance_fn(a, b)
+    else:
+        a_np = np.array(a, copy=False)
+        b_np = np.array(b, copy=False)
+        value = distance_fn(a_np, b_np)
+    if hasattr(value, "item"):
+        value = value.item()
+    return float(value)
+
+
 def first_convergence_step(
     distances: List[float], threshold: float, patience: int
 ) -> int | None:
@@ -354,10 +371,33 @@ def plot_single_series(
     output_path: Path,
     title: str,
     y_label: str,
+    probe_distance: float | None = None,
 ) -> None:
     steps = np.arange(1, len(distances) + 1)
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.plot(steps, distances, linewidth=2)
+    if probe_distance is not None:
+        probe_step = len(distances) + 1
+        if len(distances) > 0:
+            ax.plot(
+                [len(distances), probe_step],
+                [distances[-1], probe_distance],
+                linestyle="--",
+                linewidth=1.0,
+                alpha=0.7,
+                color="#d62728",
+            )
+        ax.scatter(
+            [probe_step],
+            [probe_distance],
+            marker="X",
+            s=70,
+            color="#d62728",
+            edgecolors="black",
+            linewidths=0.5,
+            label="terminal probe",
+        )
+        ax.legend(loc="best")
     ax.set_xlabel("Execution step")
     ax.set_ylabel(y_label)
     ax.set_title(title)
@@ -373,11 +413,39 @@ def plot_dataset_stats(
     output_path: Path,
     title: str,
     y_label: str,
+    probe_mean: float | None = None,
+    probe_std: float | None = None,
 ) -> None:
     steps = np.arange(1, len(mean) + 1)
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.plot(steps, mean, linewidth=2, label="mean")
     ax.fill_between(steps, mean - std, mean + std, alpha=0.25, label="std")
+    if probe_mean is not None:
+        probe_step = len(mean) + 1
+        if len(mean) > 0:
+            ax.plot(
+                [len(mean), probe_step],
+                [mean[-1], probe_mean],
+                linestyle="--",
+                linewidth=1.0,
+                alpha=0.7,
+                color="#d62728",
+            )
+        yerr = probe_std if probe_std is not None else 0.0
+        ax.errorbar(
+            [probe_step],
+            [probe_mean],
+            yerr=[yerr],
+            fmt="X",
+            markersize=8,
+            color="#d62728",
+            ecolor="#d62728",
+            elinewidth=1.0,
+            capsize=3,
+            markeredgecolor="black",
+            markeredgewidth=0.5,
+            label="terminal probe",
+        )
     ax.set_xlabel("Execution step")
     ax.set_ylabel(y_label)
     ax.set_title(title)
@@ -437,6 +505,7 @@ def main() -> None:
 
     distance_series = []
     convergence_steps: List[int | None] = []
+    terminal_probe_distances: List[float | None] = []
     for graph in graphs:
         latents = compute_latent_sequence(
             model=model,
@@ -457,6 +526,19 @@ def main() -> None:
                 distances, args.converge_threshold, args.converge_patience
             )
         )
+        probe_latents = compute_latent_sequence(
+            model=model,
+            graph_data=graph,
+            embed_dim=config.model.embed_dim,
+            latent_kind=args.latent,
+            extra_steps=args.extra_steps + 1,
+        )
+        probe_distance = None
+        if latents and len(probe_latents) > len(latents):
+            probe_distance = compute_pair_distance(
+                latents[-1], probe_latents[-1], distance_fn, distance_input
+            )
+        terminal_probe_distances.append(probe_distance)
 
     metadata = {
         "config_name": config.name,
@@ -471,6 +553,7 @@ def main() -> None:
         "dataset": str(dataset_path),
         "split": args.split if args.dataset is None else None,
         "num_graphs": len(graphs),
+        "terminal_probe_definition": "distance from final analyzed latent to one extra terminal-target forward pass",
     }
 
     if args.graph_index is not None:
@@ -478,22 +561,36 @@ def main() -> None:
         title = args.title or f"Latent distance over time (graph {args.graph_index})"
         plot_path = output_dir / f"graph_{args.graph_index}_distance.png"
         plot_single_series(
-            distances, plot_path, title=title, y_label=f"distance ({distance_label})"
+            distances,
+            plot_path,
+            title=title,
+            y_label=f"distance ({distance_label})",
+            probe_distance=terminal_probe_distances[0],
         )
         write_json(
             output_dir / f"graph_{args.graph_index}_distances.json",
             {
                 "distances": distances,
+                "terminal_probe_distance": terminal_probe_distances[0],
                 "convergence_step": convergence_steps[0],
                 "metadata": metadata,
             },
         )
     else:
         mean, std, counts = aggregate_distance_series(distance_series)
+        probe_values = [x for x in terminal_probe_distances if x is not None]
+        probe_mean = float(np.mean(probe_values)) if probe_values else None
+        probe_std = float(np.std(probe_values)) if probe_values else None
         title = args.title or "Latent distance over time (dataset)"
         plot_path = output_dir / "dataset_distance.png"
         plot_dataset_stats(
-            mean, std, plot_path, title=title, y_label=f"distance ({distance_label})"
+            mean,
+            std,
+            plot_path,
+            title=title,
+            y_label=f"distance ({distance_label})",
+            probe_mean=probe_mean,
+            probe_std=probe_std,
         )
         write_json(
             output_dir / "dataset_stats.json",
@@ -501,6 +598,9 @@ def main() -> None:
                 "mean": mean.tolist(),
                 "std": std.tolist(),
                 "counts": counts.tolist(),
+                "terminal_probe_distances": terminal_probe_distances,
+                "terminal_probe_mean": probe_mean,
+                "terminal_probe_std": probe_std,
                 "convergence_steps": convergence_steps,
                 "metadata": metadata,
             },

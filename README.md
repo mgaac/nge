@@ -179,6 +179,7 @@ Key options:
   - `processed_zero_bfs_input`: processor output when BFS encoder input is zeroed
   - `processed_zero_bf_input`: processor output when BF encoder input is zeroed
 - `--converge-threshold` and `--converge-patience` to estimate convergence step
+- Includes a distinct **terminal probe** in plots/JSON: one extra forward pass from final target state, measured as distance from the final analyzed latent
 
 ### Embedding trajectories + PCA (`src.analysis.embedding_trajectories`)
 Extracts trajectories and produces trajectory‑wise and step‑wise PCA.
@@ -195,11 +196,13 @@ Key options:
 - `--step-policy` (`common`, `fixed`, `min`, `max`) to align graphs by execution length
 - `--steps` when using `--step-policy fixed`
 - `--extra-steps` to fake-continue execution after algorithm termination by reusing final BF/BFS states as inputs
+- When `--extra-steps > 0`, PCA bases are fit using only non-extra execution steps; extra-step tensors are projected into that fixed basis (not used to fit it)
 - `--pca` (`none`, `step`, `trajectory`, `both`) and `--pca-components`
-- `--plot` to save 2D PCA plots with explained variance in the title; trajectory-wise uses a gradient color mapping, step-wise uses one discrete color per execution step with subtle per-graph connecting lines, and both include legends
+- `--plot` to save 2D PCA plots with explained variance in the title; trajectory-wise uses a gradient color mapping, step-wise uses one discrete color per execution step with subtle per-graph connecting lines, and both include legends. Step-wise plots also mark terminal probes (`X`) and their mean (`*`).
 Outputs:
-- `trajectories.npz` (N x T x D + flattened matrices + indices)
+- `trajectories.npz` (N x T x D + flattened matrices + indices + terminal probes)
 - `pca_step.npz` / `pca_trajectory.npz` with projections, components, mean, variance
+- `pca_step_completion_probes.npz` when step PCA is enabled (projected terminal probes)
 - Optional plots in the output directory
 
 ### Execution-length step overlay (`src.analysis.execution_length_step_overlay`)
@@ -208,13 +211,15 @@ Key options:
 - `--run-dir` run containing checkpoints/config
 - `--dataset` optional dataset override (`.npz`)
 - `--latent` representation (`processed|encoded|encoded_bfs|encoded_bf|processed_zero_bfs_input|processed_zero_bf_input`)
-- `--steps-min` / `--steps-max` fixed step-count sweep range
+- `--steps-min` / `--steps-max` sweep the **base** execution lengths (before fake continuation)
 - `--node-agg` (`max|min|mean`)
-- `--extra-steps` forwarded to each per-step trajectory extraction run
+- `--extra-steps` fake continuation steps appended after termination; each sub-run uses `total_steps = base_steps + extra_steps`
 - `--keep-step-plots` to also save each per-step run PCA plot
+Additionally, each series now includes a distinct **terminal-probe marker**: for graphs in that execution-length bucket, the script performs one extra forward pass from the final target state, projects those embeddings into the same per-run PCA basis, and plots their average location.
+When `--extra-steps > 0`, those per-run PCA bases are fit without extra-step tensors (extra steps are projected only).
 Outputs:
 - `analysis/execution_length_step_overlay/avg_step_coordinate_overlay.png`
-- `analysis/execution_length_step_overlay/avg_step_coordinate_overlay.json`
+- `analysis/execution_length_step_overlay/avg_step_coordinate_overlay.json` (includes `completion_avg_coordinate` per series)
 - per-step metadata under `analysis/execution_length_step_overlay/per_step_runs/steps_XX/`
 Example:
 ```bash
@@ -222,7 +227,8 @@ python -m src.analysis.execution_length_step_overlay \
   --run-dir runs/<run_name> \
   --dataset data/dataset_20g_200n.npz \
   --latent processed_zero_bfs_input \
-  --steps-min 0 --steps-max 8
+  --steps-min 0 --steps-max 8 \
+  --extra-steps 2
 ```
 
 ### Dataset step distribution (`src.analysis.dataset_step_distribution`)
@@ -277,11 +283,11 @@ Outputs:
 
 Outputs (single‑graph):
 - `graph_<index>_distance.png`
-- `graph_<index>_distances.json`
+- `graph_<index>_distances.json` (`terminal_probe_distance` included)
 
 Outputs (dataset):
 - `dataset_distance.png`
-- `dataset_stats.json` (mean/std/counts + metadata)
+- `dataset_stats.json` (mean/std/counts + `terminal_probe_distances`, probe mean/std, metadata)
 
 ## Configuration
 Configs in `configs/` define model, training, data paths, and logging:

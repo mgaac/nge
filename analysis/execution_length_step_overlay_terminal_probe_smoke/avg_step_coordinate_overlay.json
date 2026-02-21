@@ -1,0 +1,100 @@
+{
+  "run_dir": "runs/20260208-130950_7993947-dirtyd358aa87_termination",
+  "dataset": "data/val_dataset.npz",
+  "split": "val",
+  "latent": "processed",
+  "node_agg": "max",
+  "steps_min_base": 4,
+  "steps_max_base": 5,
+  "extra_steps": 0,
+  "series": [
+    {
+      "base_steps": 4,
+      "total_steps": 4,
+      "num_graphs": 23,
+      "step_pca_mean_coordinates": [
+        {
+          "step": 0,
+          "mean_coordinate": [
+            -4.4238362312316895,
+            3.1709256172180176
+          ]
+        },
+        {
+          "step": 1,
+          "mean_coordinate": [
+            -2.0508124828338623,
+            -3.3197555541992188
+          ]
+        },
+        {
+          "step": 2,
+          "mean_coordinate": [
+            2.982879400253296,
+            -0.07922346889972687
+          ]
+        },
+        {
+          "step": 3,
+          "mean_coordinate": [
+            3.491769790649414,
+            0.22805288434028625
+          ]
+        }
+      ],
+      "completion_avg_coordinate": [
+        3.4646742037635074,
+        0.271814378053481
+      ],
+      "metadata_path": "analysis/execution_length_step_overlay_terminal_probe_smoke/per_step_runs/steps_04/metadata.json"
+    },
+    {
+      "base_steps": 5,
+      "total_steps": 5,
+      "num_graphs": 54,
+      "step_pca_mean_coordinates": [
+        {
+          "step": 0,
+          "mean_coordinate": [
+            -3.923701047897339,
+            -4.156113147735596
+          ]
+        },
+        {
+          "step": 1,
+          "mean_coordinate": [
+            -3.354571580886841,
+            2.7536590099334717
+          ]
+        },
+        {
+          "step": 2,
+          "mean_coordinate": [
+            0.9812966585159302,
+            1.096486210823059
+          ]
+        },
+        {
+          "step": 3,
+          "mean_coordinate": [
+            3.0816755294799805,
+            0.20104673504829407
+          ]
+        },
+        {
+          "step": 4,
+          "mean_coordinate": [
+            3.215301513671875,
+            0.10491666197776794
+          ]
+        }
+      ],
+      "completion_avg_coordinate": [
+        3.1334484455485843,
+        0.09201179539466142
+      ],
+      "metadata_path": "analysis/execution_length_step_overlay_terminal_probe_smoke/per_step_runs/steps_05/metadata.json"
+    }
+  ],
+  "overlay_plot": "analysis/execution_length_step_overlay_terminal_probe_smoke/avg_step_coordinate_overlay.png"
+}

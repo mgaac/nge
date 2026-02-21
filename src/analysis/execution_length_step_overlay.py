@@ -19,6 +19,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from src.analysis.common import (
+    load_model_from_checkpoint,
+    resolve_checkpoint_path,
+    resolve_config,
+    resolve_dataset_path,
+)
+from src.analysis.embedding_trajectories import collect_graph_trajectory, count_execution_steps
+from src.data import load_dataset
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -111,7 +120,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run_single_step(args: argparse.Namespace, step_count: int, output_dir: Path) -> bool:
+def run_single_step(args: argparse.Namespace, base_step_count: int, output_dir: Path) -> bool:
+    total_step_count = base_step_count + args.extra_steps
     cmd = [
         sys.executable,
         "-m",
@@ -127,7 +137,7 @@ def run_single_step(args: argparse.Namespace, step_count: int, output_dir: Path)
         "--step-policy",
         "fixed",
         "--steps",
-        str(step_count),
+        str(total_step_count),
         "--pca",
         "step",
         "--pca-components",
@@ -144,7 +154,7 @@ def run_single_step(args: argparse.Namespace, step_count: int, output_dir: Path)
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode == 0:
-        print(f"[ok] steps={step_count}")
+        print(f"[ok] base_steps={base_step_count} total_steps={total_step_count}")
         return True
 
     stderr = (result.stderr or "").strip()
@@ -152,11 +162,15 @@ def run_single_step(args: argparse.Namespace, step_count: int, output_dir: Path)
     combined = f"{stdout}\n{stderr}"
     missing_msg = "No graphs matched step count"
     if missing_msg in combined and not args.fail_on_missing:
-        print(f"[skip] steps={step_count} (no matching graphs)")
+        print(
+            f"[skip] base_steps={base_step_count} total_steps={total_step_count} "
+            "(no matching graphs)"
+        )
         return False
 
     raise RuntimeError(
-        f"embedding_trajectories failed for steps={step_count}\n"
+        f"embedding_trajectories failed for base_steps={base_step_count} "
+        f"(total_steps={total_step_count})\n"
         f"command: {' '.join(cmd)}\n"
         f"stdout:\n{stdout}\n\nstderr:\n{stderr}"
     )
@@ -175,27 +189,81 @@ def load_step_means(step_dir: Path) -> Dict[str, Any]:
     return metadata
 
 
-def plot_overlay(series: List[Dict[str, Any]], output_path: Path) -> None:
+def completion_average_in_step_pca(
+    *,
+    args: argparse.Namespace,
+    metadata: Dict[str, Any],
+    step_dir: Path,
+    model: Any,
+    dataset: list[dict],
+    embed_dim: int,
+) -> List[float] | None:
+    selected_indices = metadata.get("selected_graph_indices")
+    if not selected_indices:
+        return None
+
+    completion_vectors: List[np.ndarray] = []
+    expected_base_steps = int(metadata["target_steps"]) - int(args.extra_steps)
+
+    for graph_index in selected_indices:
+        graph = dataset[int(graph_index)]
+        base_steps = count_execution_steps(graph, extra_steps=0)
+        if base_steps != expected_base_steps:
+            continue
+
+        # Probe one extra transition after true termination inputs.
+        completion_trajectory = collect_graph_trajectory(
+            model=model,
+            graph_data=graph,
+            embed_dim=embed_dim,
+            latent_kind=args.latent,
+            node_agg=args.node_agg,
+            extra_steps=1,
+        )
+        if completion_trajectory.shape[0] == 0:
+            continue
+        completion_vectors.append(completion_trajectory[-1])
+
+    if not completion_vectors:
+        return None
+
+    completion_matrix = np.asarray(np.stack(completion_vectors, axis=0), dtype=np.float64)
+    pca_payload = np.load(step_dir / "pca_step.npz")
+    components = np.asarray(pca_payload["components"], dtype=np.float64)
+    mean = np.asarray(pca_payload["mean"], dtype=np.float64)
+    projected = (completion_matrix - mean) @ components.T
+    avg_coord = projected.mean(axis=0)
+    return [float(v) for v in avg_coord.tolist()]
+
+
+def plot_overlay(series: List[Dict[str, Any]], output_path: Path, extra_steps: int) -> None:
     fig, ax = plt.subplots(figsize=(8, 6))
 
     if not series:
         raise ValueError("No step series to plot.")
 
-    step_values = [item["target_steps"] for item in series]
+    step_values = [item["base_steps"] for item in series]
     min_step = min(step_values)
     max_step = max(step_values)
     denom = max(max_step - min_step, 1)
 
     cmap = plt.get_cmap("viridis")
 
-    for item in sorted(series, key=lambda x: x["target_steps"]):
+    for item in sorted(series, key=lambda x: x["base_steps"]):
         coords = np.array(
             [entry["mean_coordinate"] for entry in item["step_pca_mean_coordinates"]],
             dtype=np.float64,
         )
         if coords.shape[0] == 0:
             continue
-        color = cmap((item["target_steps"] - min_step) / denom)
+        color = cmap((item["base_steps"] - min_step) / denom)
+        if extra_steps > 0:
+            label = (
+                f"base={item['base_steps']}, total={item['total_steps']} "
+                f"(n={item['num_graphs']})"
+            )
+        else:
+            label = f"steps={item['base_steps']} (n={item['num_graphs']})"
         ax.plot(
             coords[:, 0],
             coords[:, 1],
@@ -204,12 +272,40 @@ def plot_overlay(series: List[Dict[str, Any]], output_path: Path) -> None:
             markersize=4,
             alpha=0.95,
             color=color,
-            label=f"steps={item['target_steps']} (n={item['num_graphs']})",
+            label=label,
         )
+        completion_coord = item.get("completion_avg_coordinate")
+        if completion_coord is not None:
+            completion = np.array(completion_coord, dtype=np.float64)
+            ax.plot(
+                [coords[-1, 0], completion[0]],
+                [coords[-1, 1], completion[1]],
+                linestyle="--",
+                linewidth=0.8,
+                alpha=0.55,
+                color=color,
+            )
+            ax.scatter(
+                [completion[0]],
+                [completion[1]],
+                marker="X",
+                s=88,
+                color=color,
+                edgecolors="black",
+                linewidths=0.7,
+                alpha=0.98,
+                label=f"terminal-probe base={item['base_steps']}",
+            )
 
     ax.set_xlabel("PC1")
     ax.set_ylabel("PC2")
-    ax.set_title("Average Step Coordinates by Execution Length")
+    if extra_steps > 0:
+        ax.set_title(
+            "Average Step Coordinates by Base Execution Length "
+            f"(+{extra_steps} extra steps)"
+        )
+    else:
+        ax.set_title("Average Step Coordinates by Execution Length")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="best", fontsize=8)
     fig.tight_layout()
@@ -223,6 +319,12 @@ def main() -> None:
         raise ValueError("--steps-min must be <= --steps-max.")
     if args.extra_steps < 0:
         raise ValueError("--extra-steps must be non-negative.")
+    config, run_dir = resolve_config(config_path=None, run_dir=args.run_dir)
+    dataset_path = resolve_dataset_path(args.dataset, args.split, config)
+    dataset = load_dataset(dataset_path)
+    checkpoint_path = resolve_checkpoint_path(checkpoint=None, run_dir=run_dir)
+    model, _ = load_model_from_checkpoint(config, checkpoint_path, run_dir)
+    model.eval()
 
     root_output = (
         Path(args.output_dir)
@@ -233,18 +335,35 @@ def main() -> None:
     sweep_root.mkdir(parents=True, exist_ok=True)
 
     collected: List[Dict[str, Any]] = []
-    for step_count in range(args.steps_min, args.steps_max + 1):
-        step_dir = sweep_root / f"steps_{step_count:02d}"
+    for base_step_count in range(args.steps_min, args.steps_max + 1):
+        step_dir = sweep_root / f"steps_{base_step_count:02d}"
         step_dir.mkdir(parents=True, exist_ok=True)
-        ok = run_single_step(args, step_count, step_dir)
+        ok = run_single_step(args, base_step_count, step_dir)
         if not ok:
             continue
         metadata = load_step_means(step_dir)
+        total_steps = int(metadata["target_steps"])
+        expected_total_steps = base_step_count + args.extra_steps
+        if total_steps != expected_total_steps:
+            raise ValueError(
+                "Unexpected target_steps returned by embedding_trajectories: "
+                f"got {total_steps}, expected {expected_total_steps} "
+                f"(base_steps={base_step_count}, extra_steps={args.extra_steps})."
+            )
         collected.append(
             {
-                "target_steps": int(metadata["target_steps"]),
+                "base_steps": int(base_step_count),
+                "total_steps": total_steps,
                 "num_graphs": int(metadata["num_graphs"]),
                 "step_pca_mean_coordinates": metadata["step_pca_mean_coordinates"],
+                "completion_avg_coordinate": completion_average_in_step_pca(
+                    args=args,
+                    metadata=metadata,
+                    step_dir=step_dir,
+                    model=model,
+                    dataset=dataset,
+                    embed_dim=config.model.embed_dim,
+                ),
                 "metadata_path": str(step_dir / "metadata.json"),
             }
         )
@@ -253,18 +372,18 @@ def main() -> None:
         raise ValueError("No runs succeeded. Nothing to overlay.")
 
     overlay_path = root_output / "avg_step_coordinate_overlay.png"
-    plot_overlay(collected, overlay_path)
+    plot_overlay(collected, overlay_path, args.extra_steps)
 
     summary = {
         "run_dir": args.run_dir,
-        "dataset": args.dataset,
+        "dataset": str(dataset_path),
         "split": args.split,
         "latent": args.latent,
         "node_agg": args.node_agg,
-        "steps_min": args.steps_min,
-        "steps_max": args.steps_max,
+        "steps_min_base": args.steps_min,
+        "steps_max_base": args.steps_max,
         "extra_steps": args.extra_steps,
-        "series": sorted(collected, key=lambda x: x["target_steps"]),
+        "series": sorted(collected, key=lambda x: x["base_steps"]),
         "overlay_plot": str(overlay_path),
     }
     summary_path = root_output / "avg_step_coordinate_overlay.json"

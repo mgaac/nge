@@ -1,0 +1,331 @@
+{
+  "results": [
+    {
+      "run_dir": "runs/20260131-134814_55b1490-dirtycc565093_baseline",
+      "latent": "processed",
+      "num_graphs": 54,
+      "num_steps": 10,
+      "num_successive_distances": 9,
+      "graphs_with_monotonic_nonincreasing_successive_distance": 0,
+      "graphs_with_violation": 54,
+      "violation_fraction": 1.0,
+      "mean_distance_sequence_monotonic_nonincreasing": false,
+      "mean_distance_sequence": [
+        13.762513160705566,
+        10.320781707763672,
+        8.974343299865723,
+        7.449765205383301,
+        6.468120098114014,
+        5.318963050842285,
+        5.77033805847168,
+        7.342886924743652,
+        6.5099406242370605
+      ],
+      "counterexamples": [
+        {
+          "trajectory_index": 0,
+          "graph_index": 0,
+          "increase_between_distance_steps": [
+            6,
+            7
+          ],
+          "distance_before": 5.614328384399414,
+          "distance_after": 5.904173851013184,
+          "distance_sequence": [
+            14.573770523071289,
+            8.738689422607422,
+            8.417262077331543,
+            8.004793167114258,
+            6.815028190612793,
+            5.614328384399414,
+            5.904173851013184,
+            6.035815238952637,
+            5.648605823516846
+          ]
+        },
+        {
+          "trajectory_index": 1,
+          "graph_index": 1,
+          "increase_between_distance_steps": [
+            7,
+            8
+          ],
+          "distance_before": 4.268727779388428,
+          "distance_after": 7.509212017059326,
+          "distance_sequence": [
+            13.698145866394043,
+            8.93459701538086,
+            6.735562801361084,
+            6.690881252288818,
+            5.710226058959961,
+            4.640182018280029,
+            4.268727779388428,
+            7.509212017059326,
+            6.19297456741333
+          ]
+        },
+        {
+          "trajectory_index": 2,
+          "graph_index": 2,
+          "increase_between_distance_steps": [
+            6,
+            7
+          ],
+          "distance_before": 5.401358604431152,
+          "distance_after": 6.20776891708374,
+          "distance_sequence": [
+            13.569330215454102,
+            11.508209228515625,
+            9.960823059082031,
+            7.559686660766602,
+            6.419118881225586,
+            5.401358604431152,
+            6.20776891708374,
+            8.289717674255371,
+            7.205117702484131
+          ]
+        },
+        {
+          "trajectory_index": 3,
+          "graph_index": 3,
+          "increase_between_distance_steps": [
+            6,
+            7
+          ],
+          "distance_before": 5.237929344177246,
+          "distance_after": 5.330456733703613,
+          "distance_sequence": [
+            13.802952766418457,
+            9.204450607299805,
+            7.89962100982666,
+            7.735359191894531,
+            6.680771350860596,
+            5.237929344177246,
+            5.330456733703613,
+            6.000143051147461,
+            5.7823286056518555
+          ]
+        },
+        {
+          "trajectory_index": 4,
+          "graph_index": 5,
+          "increase_between_distance_steps": [
+            6,
+            7
+          ],
+          "distance_before": 5.219758033752441,
+          "distance_after": 5.243886947631836,
+          "distance_sequence": [
+            13.717074394226074,
+            8.348869323730469,
+            8.154780387878418,
+            7.820687770843506,
+            6.974061965942383,
+            5.219758033752441,
+            5.243886947631836,
+            5.822723388671875,
+            5.743882179260254
+          ]
+        }
+      ]
+    },
+    {
+      "run_dir": "runs/20260206-115015_7993947-dirtyc2e8b763_termination",
+      "latent": "processed",
+      "num_graphs": 54,
+      "num_steps": 5,
+      "num_successive_distances": 4,
+      "graphs_with_monotonic_nonincreasing_successive_distance": 29,
+      "graphs_with_violation": 25,
+      "violation_fraction": 0.46296296296296297,
+      "mean_distance_sequence_monotonic_nonincreasing": true,
+      "mean_distance_sequence": [
+        11.893402099609375,
+        10.031086921691895,
+        8.690422058105469,
+        4.395356178283691
+      ],
+      "counterexamples": [
+        {
+          "trajectory_index": 0,
+          "graph_index": 0,
+          "increase_between_distance_steps": [
+            2,
+            3
+          ],
+          "distance_before": 8.015220642089844,
+          "distance_after": 11.206663131713867,
+          "distance_sequence": [
+            12.28526782989502,
+            8.015220642089844,
+            11.206663131713867,
+            7.288884162902832
+          ]
+        },
+        {
+          "trajectory_index": 3,
+          "graph_index": 3,
+          "increase_between_distance_steps": [
+            2,
+            3
+          ],
+          "distance_before": 8.082054138183594,
+          "distance_after": 10.645380973815918,
+          "distance_sequence": [
+            12.115304946899414,
+            8.082054138183594,
+            10.645380973815918,
+            7.045176029205322
+          ]
+        },
+        {
+          "trajectory_index": 4,
+          "graph_index": 5,
+          "increase_between_distance_steps": [
+            2,
+            3
+          ],
+          "distance_before": 7.81198787689209,
+          "distance_after": 11.016780853271484,
+          "distance_sequence": [
+            12.271900177001953,
+            7.81198787689209,
+            11.016780853271484,
+            7.113247394561768
+          ]
+        },
+        {
+          "trajectory_index": 7,
+          "graph_index": 8,
+          "increase_between_distance_steps": [
+            1,
+            2
+          ],
+          "distance_before": 11.329487800598145,
+          "distance_after": 12.246545791625977,
+          "distance_sequence": [
+            11.329487800598145,
+            12.246545791625977,
+            7.664413928985596,
+            2.544867753982544
+          ]
+        },
+        {
+          "trajectory_index": 8,
+          "graph_index": 9,
+          "increase_between_distance_steps": [
+            1,
+            2
+          ],
+          "distance_before": 11.469186782836914,
+          "distance_after": 12.149090766906738,
+          "distance_sequence": [
+            11.469186782836914,
+            12.149090766906738,
+            7.483795642852783,
+            2.41355562210083
+          ]
+        }
+      ]
+    },
+    {
+      "run_dir": "runs/20260208-130950_7993947-dirtyd358aa87_termination",
+      "latent": "encoded",
+      "num_graphs": 54,
+      "num_steps": 5,
+      "num_successive_distances": 4,
+      "graphs_with_monotonic_nonincreasing_successive_distance": 6,
+      "graphs_with_violation": 48,
+      "violation_fraction": 0.8888888888888888,
+      "mean_distance_sequence_monotonic_nonincreasing": false,
+      "mean_distance_sequence": [
+        8.673874855041504,
+        1.7838997840881348,
+        2.862252712249756,
+        1.6158902645111084
+      ],
+      "counterexamples": [
+        {
+          "trajectory_index": 0,
+          "graph_index": 0,
+          "increase_between_distance_steps": [
+            3,
+            4
+          ],
+          "distance_before": 1.2955923080444336,
+          "distance_after": 3.879948616027832,
+          "distance_sequence": [
+            8.601578712463379,
+            1.7216355800628662,
+            1.2955923080444336,
+            3.879948616027832
+          ]
+        },
+        {
+          "trajectory_index": 2,
+          "graph_index": 2,
+          "increase_between_distance_steps": [
+            2,
+            3
+          ],
+          "distance_before": 1.7352049350738525,
+          "distance_after": 3.5226352214813232,
+          "distance_sequence": [
+            8.769529342651367,
+            1.7352049350738525,
+            3.5226352214813232,
+            0.6095872521400452
+          ]
+        },
+        {
+          "trajectory_index": 3,
+          "graph_index": 3,
+          "increase_between_distance_steps": [
+            3,
+            4
+          ],
+          "distance_before": 1.201517105102539,
+          "distance_after": 3.980236053466797,
+          "distance_sequence": [
+            8.598689079284668,
+            1.6032350063323975,
+            1.201517105102539,
+            3.980236053466797
+          ]
+        },
+        {
+          "trajectory_index": 4,
+          "graph_index": 5,
+          "increase_between_distance_steps": [
+            3,
+            4
+          ],
+          "distance_before": 1.2473385334014893,
+          "distance_after": 3.631838321685791,
+          "distance_sequence": [
+            8.514765739440918,
+            1.63813054561615,
+            1.2473385334014893,
+            3.631838321685791
+          ]
+        },
+        {
+          "trajectory_index": 5,
+          "graph_index": 6,
+          "increase_between_distance_steps": [
+            2,
+            3
+          ],
+          "distance_before": 1.8030084371566772,
+          "distance_after": 3.865917682647705,
+          "distance_sequence": [
+            8.684995651245117,
+            1.8030084371566772,
+            3.865917682647705,
+            1.1370456218719482
+          ]
+        }
+      ]
+    }
+  ]
+}
