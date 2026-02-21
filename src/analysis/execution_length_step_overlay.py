@@ -81,6 +81,15 @@ def parse_args() -> argparse.Namespace:
         help="Number of PCA components for step-wise PCA.",
     )
     parser.add_argument(
+        "--extra-steps",
+        type=int,
+        default=0,
+        help=(
+            "Forwarded to embedding_trajectories. Fake-continue each graph for "
+            "N additional steps after termination."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default=None,
@@ -123,6 +132,8 @@ def run_single_step(args: argparse.Namespace, step_count: int, output_dir: Path)
         "step",
         "--pca-components",
         str(args.pca_components),
+        "--extra-steps",
+        str(args.extra_steps),
         "--output-dir",
         str(output_dir),
     ]
@@ -210,6 +221,8 @@ def main() -> None:
     args = parse_args()
     if args.steps_min > args.steps_max:
         raise ValueError("--steps-min must be <= --steps-max.")
+    if args.extra_steps < 0:
+        raise ValueError("--extra-steps must be non-negative.")
 
     root_output = (
         Path(args.output_dir)
@@ -250,6 +263,7 @@ def main() -> None:
         "node_agg": args.node_agg,
         "steps_min": args.steps_min,
         "steps_max": args.steps_max,
+        "extra_steps": args.extra_steps,
         "series": sorted(collected, key=lambda x: x["target_steps"]),
         "overlay_plot": str(overlay_path),
     }
@@ -262,4 +276,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

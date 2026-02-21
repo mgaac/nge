@@ -6,7 +6,7 @@ NGE is a research codebase that trains a message‑passing neural network to exe
 - Data generation: synthetic graph creation (Erdos‑Renyi + Barabasi‑Albert), self‑loops, bidirectional edges, uniform random weights, BF/BFS logging, dataset save/load to `.npz`.
 - Model: MLX MPNN processor + BFS/BF encoders/decoders, termination heads, configurable aggregation (SUM/AVG/MIN/MAX), residual connections, dropout, configurable message‑passing depth.
 - Training: config‑driven runs, per‑step BF/BFS losses, termination losses, optional gradient norm extraction, evaluation at intervals, checkpoints, run metadata, and JSONL metrics logging.
-- Analysis: latent convergence, embedding trajectories, threshold sweeps, and eval-only failure mode analysis with per-graph misclassification reports.
+- Analysis: latent convergence, embedding trajectories, execution-step distribution plots, threshold sweeps, and eval-only failure mode analysis with per-graph misclassification reports.
 - Reproducibility: deterministic seeding, git + environment metadata, resolved config snapshots.
 - Utilities: metrics history loader, checkpoint manager with latest marker, debug printing of execution details.
 - Tests: workflow and checkpointing tests.
@@ -153,6 +153,10 @@ python -m src.train --eval-only --run-dir runs/<run_name> \
 python -m src.train --eval-only --run-dir runs/<run_name> --analyze-failures \
   --failure-split test --failure-debug-top-k 5
 ```
+Failure-analysis outputs in `runs/<run_name>/analysis/`:
+- `failure_modes_<split>.json` (per-graph failures + aggregated termination mispredict stats by step)
+- `failure_termination_mispredict_distribution_<split>.png` (BF and BFS termination mispredict counts per execution step)
+- optional debug traces under `failure_debug/<split>/`
 
 ## Termination Modes
 Termination can be configured in `model`:
@@ -190,6 +194,7 @@ Key options:
 - `--graph-index` to analyze one specific graph (bypasses step-policy filtering)
 - `--step-policy` (`common`, `fixed`, `min`, `max`) to align graphs by execution length
 - `--steps` when using `--step-policy fixed`
+- `--extra-steps` to fake-continue execution after algorithm termination by reusing final BF/BFS states as inputs
 - `--pca` (`none`, `step`, `trajectory`, `both`) and `--pca-components`
 - `--plot` to save 2D PCA plots with explained variance in the title; trajectory-wise uses a gradient color mapping, step-wise uses one discrete color per execution step with subtle per-graph connecting lines, and both include legends
 Outputs:
@@ -205,6 +210,7 @@ Key options:
 - `--latent` representation (`processed|encoded|encoded_bfs|encoded_bf|processed_zero_bfs_input|processed_zero_bf_input`)
 - `--steps-min` / `--steps-max` fixed step-count sweep range
 - `--node-agg` (`max|min|mean`)
+- `--extra-steps` forwarded to each per-step trajectory extraction run
 - `--keep-step-plots` to also save each per-step run PCA plot
 Outputs:
 - `analysis/execution_length_step_overlay/avg_step_coordinate_overlay.png`
@@ -217,6 +223,21 @@ python -m src.analysis.execution_length_step_overlay \
   --dataset data/dataset_20g_200n.npz \
   --latent processed_zero_bfs_input \
   --steps-min 0 --steps-max 8
+```
+
+### Dataset step distribution (`src.analysis.dataset_step_distribution`)
+Visualizes BF and BFS execution-step distributions for a dataset.
+Key options:
+- `--dataset` input dataset (`.npz`, required)
+- `--max-graphs` optional cap for quick inspection
+- `--output-dir` optional output location (default: `analysis/dataset_step_distribution`)
+Outputs:
+- `execution_step_distribution.png` (BF and BFS bar plots)
+- `execution_step_distribution.json` (distributions, summary stats, relation counts)
+Example:
+```bash
+python -m src.analysis.dataset_step_distribution \
+  --dataset data/test_dataset.npz
 ```
 
 ### Termination threshold sweep (`src.analysis.termination_threshold_sweep`)

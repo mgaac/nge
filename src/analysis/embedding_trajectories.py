@@ -102,7 +102,10 @@ def parse_args() -> argparse.Namespace:
         "--extra-steps",
         type=int,
         default=0,
-        help="Extra steps to run after termination using final algorithm state.",
+        help=(
+            "Fake-continue execution for N additional steps after algorithm "
+            "termination by reusing the final BF/BFS states as inputs."
+        ),
     )
     parser.add_argument(
         "--pca",
@@ -498,6 +501,8 @@ def write_json(path: Path, payload: dict) -> None:
 
 def main() -> None:
     args = parse_args()
+    if args.extra_steps < 0:
+        raise ValueError("--extra-steps must be non-negative.")
     config, run_dir = resolve_config(args.config, args.run_dir)
 
     dataset_path = resolve_dataset_path(args.dataset, args.split, config)

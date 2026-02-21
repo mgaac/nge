@@ -805,6 +805,8 @@ def _graph_failure_details(
         "bfs_fp": 0,
         "bfs_fn": 0,
     }
+    termination_step_totals = {"bf": {}, "bfs": {}}
+    termination_step_mispredicts = {"bf": {}, "bfs": {}}
 
     previous_step_hidden_states = mx.zeros([num_nodes, 2 * embedding_dim])
     previous_distance_latent = None
@@ -895,9 +897,17 @@ def _graph_failure_details(
             bf_term_pred = 1 if bf_term_prob > 0.5 else 0
             bf_term_target = int(termination_targets["bf"].item())
             bf_term_correct = int(bf_term_pred == bf_term_target)
+            step_key = int(i + 1)
+            termination_step_totals["bf"][step_key] = (
+                termination_step_totals["bf"].get(step_key, 0) + 1
+            )
             counts["bf_termination_correct"] += bf_term_correct
             counts["bf_termination_total"] += 1
             step_entry["bf_termination_incorrect"] = 1 - bf_term_correct
+            if step_entry["bf_termination_incorrect"] > 0:
+                termination_step_mispredicts["bf"][step_key] = (
+                    termination_step_mispredicts["bf"].get(step_key, 0) + 1
+                )
             if bf_term_pred == 1 and bf_term_target == 0:
                 termination_confusion["bf_fp"] += 1
             elif bf_term_pred == 0 and bf_term_target == 1:
@@ -915,9 +925,17 @@ def _graph_failure_details(
             bfs_term_pred = 1 if bfs_term_prob > 0.5 else 0
             bfs_term_target = int(termination_targets["bfs"].item())
             bfs_term_correct = int(bfs_term_pred == bfs_term_target)
+            step_key = int(i + 1)
+            termination_step_totals["bfs"][step_key] = (
+                termination_step_totals["bfs"].get(step_key, 0) + 1
+            )
             counts["bfs_termination_correct"] += bfs_term_correct
             counts["bfs_termination_total"] += 1
             step_entry["bfs_termination_incorrect"] = 1 - bfs_term_correct
+            if step_entry["bfs_termination_incorrect"] > 0:
+                termination_step_mispredicts["bfs"][step_key] = (
+                    termination_step_mispredicts["bfs"].get(step_key, 0) + 1
+                )
             if bfs_term_pred == 1 and bfs_term_target == 0:
                 termination_confusion["bfs_fp"] += 1
             elif bfs_term_pred == 0 and bfs_term_target == 1:
@@ -973,6 +991,14 @@ def _graph_failure_details(
         "accuracy": {k: float(v) for k, v in accuracies.items()},
         "incorrect": {k: int(v) for k, v in incorrect.items()},
         "termination_confusion": {k: int(v) for k, v in termination_confusion.items()},
+        "termination_step_totals": {
+            algo: {int(step): int(count) for step, count in values.items()}
+            for algo, values in termination_step_totals.items()
+        },
+        "termination_step_mispredicts": {
+            algo: {int(step): int(count) for step, count in values.items()}
+            for algo, values in termination_step_mispredicts.items()
+        },
         "failed_tasks": failed_tasks,
         "total_error_units": int(sum(incorrect.values())),
         "step_failures": step_failures if include_step_details else None,
@@ -1005,6 +1031,8 @@ def analyze_failure_modes(
     }
     failed_graphs = []
     ranked_failed = []
+    termination_step_totals = {"bf": {}, "bfs": {}}
+    termination_step_mispredicts = {"bf": {}, "bfs": {}}
 
     for graph_index, graph_data in enumerate(graphs):
         details = _graph_failure_details(
@@ -1015,6 +1043,19 @@ def analyze_failure_modes(
             selected_tasks=selected_tasks,
             include_step_details=include_step_details,
         )
+
+        for algo in ("bf", "bfs"):
+            for step, count in details["termination_step_totals"][algo].items():
+                step_key = int(step)
+                termination_step_totals[algo][step_key] = (
+                    termination_step_totals[algo].get(step_key, 0) + int(count)
+                )
+            for step, count in details["termination_step_mispredicts"][algo].items():
+                step_key = int(step)
+                termination_step_mispredicts[algo][step_key] = (
+                    termination_step_mispredicts[algo].get(step_key, 0) + int(count)
+                )
+
         if not details["failed_tasks"]:
             continue
 
@@ -1029,6 +1070,14 @@ def analyze_failure_modes(
     ranked_failed.sort(key=lambda x: (-x[1], x[0]))
     ranked_failed_graph_indices = [idx for idx, _ in ranked_failed]
 
+    termination_step_rates = {"bf": {}, "bfs": {}}
+    for algo in ("bf", "bfs"):
+        step_keys = sorted(set(termination_step_totals[algo].keys()))
+        for step_key in step_keys:
+            total = int(termination_step_totals[algo].get(step_key, 0))
+            errors = int(termination_step_mispredicts[algo].get(step_key, 0))
+            termination_step_rates[algo][step_key] = float(errors / max(total, 1))
+
     return {
         "termination": {
             "mode": termination_settings["mode"],
@@ -1042,6 +1091,36 @@ def analyze_failure_modes(
         "num_failed_graphs": int(len(ranked_failed_graph_indices)),
         "failure_rate": float(len(ranked_failed_graph_indices) / max(len(graphs), 1)),
         "failures_by_task": failures_by_task,
+        "termination_mispredict_distribution": {
+            "bf": {
+                "counts_by_step": {
+                    int(step): int(count)
+                    for step, count in sorted(termination_step_mispredicts["bf"].items())
+                },
+                "totals_by_step": {
+                    int(step): int(count)
+                    for step, count in sorted(termination_step_totals["bf"].items())
+                },
+                "rate_by_step": {
+                    int(step): float(rate)
+                    for step, rate in sorted(termination_step_rates["bf"].items())
+                },
+            },
+            "bfs": {
+                "counts_by_step": {
+                    int(step): int(count)
+                    for step, count in sorted(termination_step_mispredicts["bfs"].items())
+                },
+                "totals_by_step": {
+                    int(step): int(count)
+                    for step, count in sorted(termination_step_totals["bfs"].items())
+                },
+                "rate_by_step": {
+                    int(step): float(rate)
+                    for step, rate in sorted(termination_step_rates["bfs"].items())
+                },
+            },
+        },
         "ranked_failed_graph_indices": ranked_failed_graph_indices,
         "failed_graphs": failed_graphs,
     }

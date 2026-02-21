@@ -463,6 +463,54 @@ def evaluate_model_accuracies_only(model, dataset, embed_dim, termination_cfg, s
     return avg_accuracies
 
 
+def save_termination_mispredict_distribution_plot(
+    distribution: dict,
+    output_path: Path,
+    split: str,
+) -> None:
+    """Plot termination mispredict counts across execution steps for BF and BFS."""
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "matplotlib is required to render failure-distribution plots."
+        ) from exc
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+    panels = [
+        ("BF termination mispredicts", "bf", "#1f77b4"),
+        ("BFS termination mispredicts", "bfs", "#ff7f0e"),
+    ]
+
+    for ax, (title, key, color) in zip(axes, panels):
+        payload = distribution.get(key, {})
+        counts = payload.get("counts_by_step", {})
+        totals = payload.get("totals_by_step", {})
+        steps = sorted({int(s) for s in totals.keys()} | {int(s) for s in counts.keys()})
+        y = [int(counts.get(str(step), counts.get(step, 0))) for step in steps]
+        bars = ax.bar(steps, y, color=color, alpha=0.9, width=0.8)
+        labels = []
+        for step in steps:
+            total = int(totals.get(str(step), totals.get(step, 0)))
+            errors = int(counts.get(str(step), counts.get(step, 0)))
+            labels.append(f"{errors}/{total}")
+        if labels:
+            ax.bar_label(bars, labels=labels, padding=2, fontsize=8)
+        ax.set_title(title)
+        ax.set_xlabel("Execution step")
+        ax.set_xticks(steps)
+        ax.grid(axis="y", alpha=0.3)
+
+    axes[0].set_ylabel("Termination mispredict count")
+    fig.suptitle(f"Termination mispredict distribution by step ({split})")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+
+
 def train_epoch(
     model,
     dataset,
@@ -833,10 +881,28 @@ def main():
                     debug_paths.append(str(debug_path))
             failure_report["debug_dump_paths"] = debug_paths
 
+            term_dist = failure_report.get("termination_mispredict_distribution")
+            if term_dist is not None:
+                dist_plot_path = (
+                    output_dir
+                    / f"failure_termination_mispredict_distribution_{args.failure_split}.png"
+                )
+                save_termination_mispredict_distribution_plot(
+                    distribution=term_dist,
+                    output_path=dist_plot_path,
+                    split=args.failure_split,
+                )
+                failure_report["termination_mispredict_plot"] = str(dist_plot_path)
+
             failure_path = output_dir / f"failure_modes_{args.failure_split}.json"
             with open(failure_path, "w") as f:
                 json.dump(failure_report, f, indent=2)
             print(f"Saved failure analysis to: {failure_path}")
+            if term_dist is not None:
+                print(
+                    "Saved termination mispredict distribution plot to: "
+                    f"{failure_report['termination_mispredict_plot']}"
+                )
             if debug_paths:
                 print(f"Saved {len(debug_paths)} debug execution traces under: {output_dir / 'failure_debug'}")
         return
