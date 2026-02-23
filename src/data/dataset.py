@@ -1,103 +1,89 @@
-"""Graph dataset generation and loading utilities.
+"""Dataset generation and I/O utilities for NGE experiments."""
 
-This module provides functions for generating synthetic graph datasets,
-running graph algorithms (Bellman-Ford and BFS), and saving/loading datasets.
-"""
+import argparse
+from math import inf
+from pathlib import Path
+from typing import List, Tuple
 
 import mlx.core as mx
 import networkx as nx
 import numpy as np
 
-from math import inf
-from typing import List, Tuple
-import argparse
-from pathlib import Path
 
-
-def erdos_renyi_edge_matrix(num_nodes=20, p=0.2):
-    # Generate Erdos-Renyi graph
+def erdos_renyi_edge_matrix(num_nodes: int = 20, p: float = 0.2):
+    """Generate an Erdos-Renyi graph edge matrix of shape (2, num_edges)."""
     G = nx.erdos_renyi_graph(num_nodes, p)
-    # Get edge list as (source, target) tuples
     edges = list(G.edges())
     if not edges:
-        # No edges, return empty MLX array
         return mx.array([])
-    # Convert to 2 x num_edges matrix
-    edge_matrix = mx.array(edges).T  # shape: (2, num_edges)
+    edge_matrix = mx.array(edges).T
     return edge_matrix
 
-def barabasi_albert_edge_matrix(num_nodes=20, m=2):
+
+def barabasi_albert_edge_matrix(num_nodes: int = 20, m: int = 2):
+    """Generate a Barabasi-Albert graph edge matrix of shape (2, num_edges)."""
     G = nx.barabasi_albert_graph(num_nodes, m)
     edges = list(G.edges())
     if not edges:
         return mx.array([])
-    edge_matrix = mx.array(edges).T  # shape: (2, num_edges)
+    edge_matrix = mx.array(edges).T
     return edge_matrix
 
-def add_self_loops(edge_matrix, num_nodes):
-    """
-    Add self loops to each node in the graph.
-    For each node i, adds edge (i,i).
-    """
+
+def add_self_loops(edge_matrix: mx.array, num_nodes: int):
+    """Add self-loops to every node in the graph."""
     if num_nodes == 0:
         return edge_matrix
-    
-    # Create self loop edges for all nodes (without weights)
-    self_loop_edges = []
-    for i in range(num_nodes):
-        self_loop_edges.append([i, i])
-    
-    # Convert self loops to array
+
+    self_loop_edges = [[i, i] for i in range(num_nodes)]
     if not self_loop_edges:
         return edge_matrix
-    
+
     self_loops_array = mx.array(self_loop_edges).T
-    
-    # Concatenate with existing edges if any exist
+
     if edge_matrix.size == 0:
         return self_loops_array
-    else:
-        return mx.concatenate([edge_matrix, self_loops_array], axis=1)
+    return mx.concatenate([edge_matrix, self_loops_array], axis=1)
 
-def make_bidirectional_edges(edge_matrix):
-    """
-    Convert directed edges to bidirectional by adding reverse edges.
-    For each edge (u,v,w), also adds (v,u,w).
-    Self-loops (u,u) are NOT duplicated.
-    """
+
+def make_bidirectional_edges(edge_matrix: mx.array):
+    """Add reverse edges for all non-self-loop edges."""
     if edge_matrix.size == 0:
         return edge_matrix
-    
+
     num_edges = edge_matrix.shape[1]
     bidirectional_edges = []
-    
+
     for i in range(num_edges):
         u, v = int(edge_matrix[0, i]), int(edge_matrix[1, i])
-        if edge_matrix.shape[0] > 2:  # Has weights
+        if edge_matrix.shape[0] > 2:
             w = edge_matrix[2, i]
             bidirectional_edges.append([u, v, w])
-            if u != v:  # Not a self-loop: add reverse edge
+            if u != v:
                 bidirectional_edges.append([v, u, w])
         else:
             bidirectional_edges.append([u, v])
-            if u != v:  # Not a self-loop: add reverse edge
+            if u != v:
                 bidirectional_edges.append([v, u])
-    
+
     return mx.array(bidirectional_edges).T
 
-def append_uniform_edge_weights(edge_matrix, num_nodes, low=0.2, high=1.0):
+
+def append_uniform_edge_weights(
+    edge_matrix: mx.array,
+    num_nodes: int,
+    low: float = 0.2,
+    high: float = 1.0,
+):
+    """Add self-loops, enforce bidirectionality, and append random edge weights."""
     if edge_matrix.size == 0 and num_nodes == 0:
         return edge_matrix
-    
-    # First add self loops (without weights initially)
+
     edge_matrix = add_self_loops(edge_matrix, num_nodes)
-    
-    # Then make edges bidirectional
     edge_matrix = make_bidirectional_edges(edge_matrix)
-    
+
     num_edges = edge_matrix.shape[1]
     weights = mx.array(np.random.uniform(low, high, size=num_edges))
-    # Stack as a new row: shape (3, num_edges)
     weighted_matrix = mx.concatenate([edge_matrix, weights.reshape(1, -1)], axis=0)
     return weighted_matrix
 
@@ -314,7 +300,7 @@ def load_dataset(filename):
 
 
 def _parse_args():
-    parser = argparse.ArgumentParser(description="Generate NGE graph datasets.")
+    parser = argparse.ArgumentParser(description="Generate synthetic NGE datasets.")
     parser.add_argument(
         "--preset",
         action="store_true",
@@ -350,11 +336,22 @@ def _parse_args():
         default=None,
         help="Output .npz path for single-dataset generation.",
     )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="data",
+        help=(
+            "Default output directory for generated datasets. "
+            "In preset mode, train/val/test are always written here."
+        ),
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.preset:
         print("Generating preset datasets...")
@@ -362,10 +359,17 @@ if __name__ == "__main__":
         val_dataset = generated_dataset(100, 20, 0.2, 2)
         test_dataset = generated_dataset(100, 20, 0.2, 2)
 
-        save_dataset(train_dataset, "train_dataset.npz")
-        save_dataset(val_dataset, "val_dataset.npz")
-        save_dataset(test_dataset, "test_dataset.npz")
-        print("Preset datasets saved: train_dataset.npz, val_dataset.npz, test_dataset.npz")
+        train_path = output_dir / "train_dataset.npz"
+        val_path = output_dir / "val_dataset.npz"
+        test_path = output_dir / "test_dataset.npz"
+
+        save_dataset(train_dataset, train_path)
+        save_dataset(val_dataset, val_path)
+        save_dataset(test_dataset, test_path)
+        print(
+            "Preset datasets saved: "
+            f"{train_path}, {val_path}, {test_path}"
+        )
     else:
         if args.num_graphs is None:
             raise ValueError(
@@ -384,7 +388,8 @@ if __name__ == "__main__":
         output_path = (
             Path(args.output)
             if args.output
-            else Path(f"dataset_{args.num_graphs}g_{args.num_nodes}n.npz")
+            else output_dir / f"dataset_{args.num_graphs}g_{args.num_nodes}n.npz"
         )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         save_dataset(dataset, output_path)
         print(f"Saved dataset to {output_path}")
