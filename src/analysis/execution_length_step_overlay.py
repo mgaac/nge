@@ -117,6 +117,22 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Fail if a step length has no matching graphs.",
     )
+    parser.add_argument(
+        "--probe-heatmaps",
+        action="store_true",
+        help=(
+            "Also compute/save pairwise terminal-probe closeness heatmaps "
+            "(L2 distance and cosine similarity)."
+        ),
+    )
+    parser.add_argument(
+        "--pca-alignment-heatmaps",
+        action="store_true",
+        help=(
+            "Also compute/save pairwise PCA-direction alignment heatmaps "
+            "for corresponding principal components."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -313,6 +329,284 @@ def plot_overlay(series: List[Dict[str, Any]], output_path: Path, extra_steps: i
     plt.close(fig)
 
 
+def _extract_probe_series(series: List[Dict[str, Any]]) -> tuple[np.ndarray, np.ndarray]:
+    valid = [item for item in series if item.get("completion_avg_coordinate") is not None]
+    if not valid:
+        return np.empty((0,), dtype=np.int32), np.empty((0, 2), dtype=np.float64)
+    base_steps = np.array([int(item["base_steps"]) for item in valid], dtype=np.int32)
+    coords = np.array(
+        [item["completion_avg_coordinate"] for item in valid], dtype=np.float64
+    )
+    return base_steps, coords
+
+
+def _pairwise_l2(coords: np.ndarray) -> np.ndarray:
+    n = coords.shape[0]
+    out = np.zeros((n, n), dtype=np.float64)
+    for i in range(n):
+        diff = coords - coords[i]
+        out[i] = np.linalg.norm(diff, axis=1)
+    return out
+
+
+def _pairwise_cosine_similarity(coords: np.ndarray) -> np.ndarray:
+    norms = np.linalg.norm(coords, axis=1, keepdims=True)
+    denom = np.maximum(norms @ norms.T, 1e-12)
+    sim = (coords @ coords.T) / denom
+    return np.clip(sim, -1.0, 1.0)
+
+
+def _plot_matrix_heatmap(
+    matrix: np.ndarray,
+    base_steps: np.ndarray,
+    title: str,
+    cbar_label: str,
+    output_path: Path,
+    cmap: str,
+    vmin: float | None = None,
+    vmax: float | None = None,
+) -> None:
+    fig, ax = plt.subplots(figsize=(7.2, 6.2))
+    im = ax.imshow(matrix, cmap=cmap, interpolation="nearest", vmin=vmin, vmax=vmax)
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label(cbar_label)
+
+    tick_labels = [str(int(step)) for step in base_steps]
+    ax.set_xticks(np.arange(len(base_steps)))
+    ax.set_yticks(np.arange(len(base_steps)))
+    ax.set_xticklabels(tick_labels)
+    ax.set_yticklabels(tick_labels)
+    ax.set_xlabel("Base step")
+    ax.set_ylabel("Base step")
+    ax.set_title(title)
+
+    threshold = float(np.nanmax(matrix)) * 0.55 if matrix.size > 0 else 0.0
+    for i in range(matrix.shape[0]):
+        for j in range(matrix.shape[1]):
+            value = matrix[i, j]
+            text_color = "white" if value > threshold else "black"
+            ax.text(
+                j,
+                i,
+                f"{value:.2f}",
+                ha="center",
+                va="center",
+                fontsize=8,
+                color=text_color,
+            )
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+
+
+def save_probe_matrices(
+    series: List[Dict[str, Any]], root_output: Path
+) -> Dict[str, Any] | None:
+    base_steps, coords = _extract_probe_series(series)
+    if coords.shape[0] == 0:
+        return None
+
+    l2_matrix = _pairwise_l2(coords)
+    cosine_matrix = _pairwise_cosine_similarity(coords)
+
+    l2_csv = root_output / "terminal_probe_pairwise_l2_matrix.csv"
+    cosine_csv = root_output / "terminal_probe_pairwise_cosine_similarity_matrix.csv"
+    l2_heatmap = root_output / "terminal_probe_pairwise_l2_matrix_heatmap.png"
+    cosine_heatmap = (
+        root_output / "terminal_probe_pairwise_cosine_similarity_matrix_heatmap.png"
+    )
+    meta_json = root_output / "terminal_probe_pairwise_matrix_meta.json"
+
+    np.savetxt(l2_csv, l2_matrix, delimiter=",", fmt="%.6f")
+    np.savetxt(cosine_csv, cosine_matrix, delimiter=",", fmt="%.6f")
+
+    _plot_matrix_heatmap(
+        matrix=l2_matrix,
+        base_steps=base_steps,
+        title="Terminal-probe pairwise L2 distance",
+        cbar_label="L2 distance",
+        output_path=l2_heatmap,
+        cmap="magma",
+    )
+    _plot_matrix_heatmap(
+        matrix=cosine_matrix,
+        base_steps=base_steps,
+        title="Terminal-probe pairwise cosine similarity",
+        cbar_label="cosine similarity",
+        output_path=cosine_heatmap,
+        cmap="viridis",
+        vmin=-1.0,
+        vmax=1.0,
+    )
+
+    meta_payload = {
+        "base_steps": [int(step) for step in base_steps.tolist()],
+        "num_probes": int(coords.shape[0]),
+        "l2_matrix_csv": str(l2_csv),
+        "l2_heatmap_png": str(l2_heatmap),
+        "cosine_similarity_matrix_csv": str(cosine_csv),
+        "cosine_similarity_heatmap_png": str(cosine_heatmap),
+    }
+    meta_json.write_text(json.dumps(meta_payload, indent=2))
+    return meta_payload
+
+
+def _extract_pca_component_series(series: List[Dict[str, Any]]) -> tuple[np.ndarray, np.ndarray]:
+    valid: List[tuple[int, np.ndarray]] = []
+    for item in series:
+        pca_step_path = Path(item["pca_step_path"])
+        if not pca_step_path.exists():
+            continue
+        payload = np.load(pca_step_path)
+        components = np.asarray(payload["components"], dtype=np.float64)
+        valid.append((int(item["base_steps"]), components))
+
+    if not valid:
+        return np.empty((0,), dtype=np.int32), np.empty((0, 0, 0), dtype=np.float64)
+
+    component_counts = {components.shape[0] for _, components in valid}
+    if len(component_counts) != 1:
+        raise ValueError(
+            "Per-run PCA components disagree in count; cannot compute alignment matrices."
+        )
+
+    ordered = sorted(valid, key=lambda x: x[0])
+    base_steps = np.array([step for step, _ in ordered], dtype=np.int32)
+    stacked = np.stack([components for _, components in ordered], axis=0)
+    return base_steps, stacked
+
+
+def _pairwise_corresponding_component_metrics(
+    stacked_components: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    runs, component_count, _ = stacked_components.shape
+    l2 = np.zeros((component_count, runs, runs), dtype=np.float64)
+    cosine = np.zeros((component_count, runs, runs), dtype=np.float64)
+
+    for component_idx in range(component_count):
+        vectors = stacked_components[:, component_idx, :]
+        norms = np.maximum(np.linalg.norm(vectors, axis=1), 1e-12)
+        for i in range(runs):
+            ai = vectors[i]
+            for j in range(runs):
+                bj = vectors[j]
+                raw_cos = float(np.dot(ai, bj) / (norms[i] * norms[j]))
+                # PCA directions are sign-indeterminate; align by absolute cosine.
+                cosine[component_idx, i, j] = abs(max(min(raw_cos, 1.0), -1.0))
+                l2[component_idx, i, j] = min(
+                    float(np.linalg.norm(ai - bj)),
+                    float(np.linalg.norm(ai + bj)),
+                )
+
+    return l2, cosine
+
+
+def save_pca_alignment_matrices(
+    series: List[Dict[str, Any]], root_output: Path
+) -> Dict[str, Any] | None:
+    base_steps, stacked_components = _extract_pca_component_series(series)
+    if stacked_components.size == 0:
+        return None
+
+    l2_by_component, cosine_by_component = _pairwise_corresponding_component_metrics(
+        stacked_components
+    )
+    mean_l2 = l2_by_component.mean(axis=0)
+    mean_cosine = cosine_by_component.mean(axis=0)
+
+    mean_l2_csv = root_output / "pca_alignment_pairwise_mean_l2_matrix.csv"
+    mean_cosine_csv = root_output / "pca_alignment_pairwise_mean_cosine_similarity_matrix.csv"
+    mean_l2_heatmap = root_output / "pca_alignment_pairwise_mean_l2_heatmap.png"
+    mean_cosine_heatmap = (
+        root_output / "pca_alignment_pairwise_mean_cosine_similarity_heatmap.png"
+    )
+    meta_json = root_output / "pca_alignment_pairwise_matrix_meta.json"
+
+    np.savetxt(mean_l2_csv, mean_l2, delimiter=",", fmt="%.6f")
+    np.savetxt(mean_cosine_csv, mean_cosine, delimiter=",", fmt="%.6f")
+    _plot_matrix_heatmap(
+        matrix=mean_l2,
+        base_steps=base_steps,
+        title="PCA alignment (mean over PCs): pairwise L2",
+        cbar_label="sign-invariant L2",
+        output_path=mean_l2_heatmap,
+        cmap="magma",
+    )
+    _plot_matrix_heatmap(
+        matrix=mean_cosine,
+        base_steps=base_steps,
+        title="PCA alignment (mean over PCs): pairwise cosine similarity",
+        cbar_label="|cosine similarity|",
+        output_path=mean_cosine_heatmap,
+        cmap="viridis",
+        vmin=0.0,
+        vmax=1.0,
+    )
+
+    component_payloads: List[Dict[str, Any]] = []
+    for component_idx in range(l2_by_component.shape[0]):
+        pc_one_based = component_idx + 1
+        l2_matrix = l2_by_component[component_idx]
+        cosine_matrix = cosine_by_component[component_idx]
+        l2_csv = root_output / f"pca_alignment_pc{pc_one_based:02d}_pairwise_l2_matrix.csv"
+        cosine_csv = (
+            root_output
+            / f"pca_alignment_pc{pc_one_based:02d}_pairwise_cosine_similarity_matrix.csv"
+        )
+        l2_heatmap = (
+            root_output / f"pca_alignment_pc{pc_one_based:02d}_pairwise_l2_heatmap.png"
+        )
+        cosine_heatmap = (
+            root_output
+            / f"pca_alignment_pc{pc_one_based:02d}_pairwise_cosine_similarity_heatmap.png"
+        )
+
+        np.savetxt(l2_csv, l2_matrix, delimiter=",", fmt="%.6f")
+        np.savetxt(cosine_csv, cosine_matrix, delimiter=",", fmt="%.6f")
+        _plot_matrix_heatmap(
+            matrix=l2_matrix,
+            base_steps=base_steps,
+            title=f"PCA alignment PC{pc_one_based}: pairwise L2",
+            cbar_label="sign-invariant L2",
+            output_path=l2_heatmap,
+            cmap="magma",
+        )
+        _plot_matrix_heatmap(
+            matrix=cosine_matrix,
+            base_steps=base_steps,
+            title=f"PCA alignment PC{pc_one_based}: pairwise cosine similarity",
+            cbar_label="|cosine similarity|",
+            output_path=cosine_heatmap,
+            cmap="viridis",
+            vmin=0.0,
+            vmax=1.0,
+        )
+        component_payloads.append(
+            {
+                "component": int(pc_one_based),
+                "l2_matrix_csv": str(l2_csv),
+                "l2_heatmap_png": str(l2_heatmap),
+                "cosine_similarity_matrix_csv": str(cosine_csv),
+                "cosine_similarity_heatmap_png": str(cosine_heatmap),
+            }
+        )
+
+    meta_payload = {
+        "base_steps": [int(step) for step in base_steps.tolist()],
+        "num_runs": int(stacked_components.shape[0]),
+        "num_components": int(stacked_components.shape[1]),
+        "sign_invariant": True,
+        "mean_l2_matrix_csv": str(mean_l2_csv),
+        "mean_l2_heatmap_png": str(mean_l2_heatmap),
+        "mean_cosine_similarity_matrix_csv": str(mean_cosine_csv),
+        "mean_cosine_similarity_heatmap_png": str(mean_cosine_heatmap),
+        "per_component": component_payloads,
+    }
+    meta_json.write_text(json.dumps(meta_payload, indent=2))
+    return meta_payload
+
+
 def main() -> None:
     args = parse_args()
     if args.steps_min > args.steps_max:
@@ -364,6 +658,7 @@ def main() -> None:
                     dataset=dataset,
                     embed_dim=config.model.embed_dim,
                 ),
+                "pca_step_path": str(step_dir / "pca_step.npz"),
                 "metadata_path": str(step_dir / "metadata.json"),
             }
         )
@@ -373,6 +668,12 @@ def main() -> None:
 
     overlay_path = root_output / "avg_step_coordinate_overlay.png"
     plot_overlay(collected, overlay_path, args.extra_steps)
+    probe_matrices = None
+    if args.probe_heatmaps:
+        probe_matrices = save_probe_matrices(collected, root_output)
+    pca_alignment_matrices = None
+    if args.pca_alignment_heatmaps:
+        pca_alignment_matrices = save_pca_alignment_matrices(collected, root_output)
 
     summary = {
         "run_dir": args.run_dir,
@@ -385,11 +686,31 @@ def main() -> None:
         "extra_steps": args.extra_steps,
         "series": sorted(collected, key=lambda x: x["base_steps"]),
         "overlay_plot": str(overlay_path),
+        "probe_heatmaps": probe_matrices,
+        "pca_alignment_heatmaps": pca_alignment_matrices,
     }
     summary_path = root_output / "avg_step_coordinate_overlay.json"
     summary_path.write_text(json.dumps(summary, indent=2))
 
     print(f"Saved overlay plot to: {overlay_path}")
+    if args.probe_heatmaps:
+        if probe_matrices is None:
+            print("Skipped probe heatmaps: no completion probes available.")
+        else:
+            print(
+                "Saved probe heatmaps to: "
+                f"{probe_matrices['l2_heatmap_png']} and "
+                f"{probe_matrices['cosine_similarity_heatmap_png']}"
+            )
+    if args.pca_alignment_heatmaps:
+        if pca_alignment_matrices is None:
+            print("Skipped PCA alignment heatmaps: no PCA payloads available.")
+        else:
+            print(
+                "Saved PCA alignment heatmaps to: "
+                f"{pca_alignment_matrices['mean_l2_heatmap_png']} and "
+                f"{pca_alignment_matrices['mean_cosine_similarity_heatmap_png']}"
+            )
     print(f"Saved overlay summary to: {summary_path}")
 
 

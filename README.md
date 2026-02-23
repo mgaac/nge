@@ -6,7 +6,7 @@ NGE is a research codebase that trains a message‑passing neural network to exe
 - Data generation: synthetic graph creation (Erdos‑Renyi + Barabasi‑Albert), self‑loops, bidirectional edges, uniform random weights, BF/BFS logging, dataset save/load to `.npz`.
 - Model: MLX MPNN processor + BFS/BF encoders/decoders, termination heads, configurable aggregation (SUM/AVG/MIN/MAX), residual connections, dropout, configurable message‑passing depth.
 - Training: config‑driven runs, per‑step BF/BFS losses, termination losses, optional gradient norm extraction, evaluation at intervals, checkpoints, run metadata, and JSONL metrics logging.
-- Analysis: latent convergence, embedding trajectories, execution-step distribution plots, threshold sweeps, and eval-only failure mode analysis with per-graph misclassification reports.
+- Analysis: latent convergence, extra-step state dynamics, embedding trajectories, execution-step distribution plots, threshold sweeps, and eval-only failure mode analysis with per-graph misclassification reports.
 - Reproducibility: deterministic seeding, git + environment metadata, resolved config snapshots.
 - Utilities: metrics history loader, checkpoint manager with latest marker, debug printing of execution details.
 - Tests: workflow and checkpointing tests.
@@ -181,6 +181,25 @@ Key options:
 - `--converge-threshold` and `--converge-patience` to estimate convergence step
 - Includes a distinct **terminal probe** in plots/JSON: one extra forward pass from final target state, measured as distance from the final analyzed latent
 
+### Extra-step state dynamics (`src.analysis.extra_step_state_dynamics`)
+Inspects model-predicted algorithmic states during fake-continuation steps to check whether they stabilize or oscillate.
+Key options:
+- `--graph-index` graph to inspect (required)
+- `--extra-steps` number of continuation steps to analyze
+- `--fixed-tol` threshold for fixed-point-like classification
+- `--period2-ratio` threshold for period-2-like classification
+Outputs:
+- `graph_<index>_extra_state_dynamics.png` (state magnitudes, termination probs, change metrics, extra-step boundary)
+- `graph_<index>_extra_state_dynamics.json` (per-step states, transition deltas, and classification)
+Example:
+```bash
+python -m src.analysis.extra_step_state_dynamics \
+  --run-dir runs/<run_name> \
+  --split val \
+  --graph-index 0 \
+  --extra-steps 8
+```
+
 ### Embedding trajectories + PCA (`src.analysis.embedding_trajectories`)
 Extracts trajectories and produces trajectory‑wise and step‑wise PCA.
 Key options:
@@ -215,12 +234,27 @@ Key options:
 - `--node-agg` (`max|min|mean`)
 - `--extra-steps` fake continuation steps appended after termination; each sub-run uses `total_steps = base_steps + extra_steps`
 - `--keep-step-plots` to also save each per-step run PCA plot
+- `--probe-heatmaps` to additionally save terminal-probe pairwise matrices/heatmaps (both L2 distance and cosine similarity)
+- `--pca-alignment-heatmaps` to additionally save pairwise PCA-direction alignment matrices/heatmaps for corresponding principal components
 Additionally, each series now includes a distinct **terminal-probe marker**: for graphs in that execution-length bucket, the script performs one extra forward pass from the final target state, projects those embeddings into the same per-run PCA basis, and plots their average location.
 When `--extra-steps > 0`, those per-run PCA bases are fit without extra-step tensors (extra steps are projected only).
 Outputs:
 - `analysis/execution_length_step_overlay/avg_step_coordinate_overlay.png`
 - `analysis/execution_length_step_overlay/avg_step_coordinate_overlay.json` (includes `completion_avg_coordinate` per series)
 - per-step metadata under `analysis/execution_length_step_overlay/per_step_runs/steps_XX/`
+- with `--probe-heatmaps`:
+  - `terminal_probe_pairwise_l2_matrix.csv`
+  - `terminal_probe_pairwise_l2_matrix_heatmap.png`
+  - `terminal_probe_pairwise_cosine_similarity_matrix.csv`
+  - `terminal_probe_pairwise_cosine_similarity_matrix_heatmap.png`
+  - `terminal_probe_pairwise_matrix_meta.json`
+- with `--pca-alignment-heatmaps`:
+  - `pca_alignment_pairwise_mean_l2_matrix.csv`
+  - `pca_alignment_pairwise_mean_l2_heatmap.png`
+  - `pca_alignment_pairwise_mean_cosine_similarity_matrix.csv`
+  - `pca_alignment_pairwise_mean_cosine_similarity_heatmap.png`
+  - `pca_alignment_pcXX_pairwise_*.csv/png` for each principal component
+  - `pca_alignment_pairwise_matrix_meta.json`
 Example:
 ```bash
 python -m src.analysis.execution_length_step_overlay \
@@ -228,7 +262,9 @@ python -m src.analysis.execution_length_step_overlay \
   --dataset data/dataset_20g_200n.npz \
   --latent processed_zero_bfs_input \
   --steps-min 0 --steps-max 8 \
-  --extra-steps 2
+  --extra-steps 2 \
+  --probe-heatmaps \
+  --pca-alignment-heatmaps
 ```
 
 ### Dataset step distribution (`src.analysis.dataset_step_distribution`)
