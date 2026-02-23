@@ -2,6 +2,7 @@
 
 NGE is an MLX research codebase for learning algorithm execution on graphs.  
 It trains a message-passing model to predict Bellman-Ford (distance + predecessor) and BFS (reachability) state transitions, plus task termination signals.
+Inspired by [Latent Space Representations of Neural Algorithmic Reasoners](https://arxiv.org/abs/2307.08874)
 
 ## Capability overview
 
