@@ -30,6 +30,7 @@ from src.analysis.common import (
     resolve_dataset_path,
 )
 from src.model import NGE
+from src.utils.task_specs import ANALYSIS_LATENT_CHOICES, build_node_algo_features
 
 
 DistanceFn = Callable[[np.ndarray, np.ndarray], float]
@@ -86,14 +87,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--latent",
         type=str,
-        choices=[
-            "processed",
-            "encoded",
-            "encoded_bfs",
-            "encoded_bf",
-            "processed_zero_bfs_input",
-            "processed_zero_bf_input",
-        ],
+        choices=ANALYSIS_LATENT_CHOICES,
         default="processed",
         help="Which latent representation to probe.",
     )
@@ -207,51 +201,78 @@ def compute_latent_sequence(
     extra_steps: int,
 ) -> List[mx.array]:
     num_nodes = graph_data["num_nodes"]
-    previous_step_hidden_states = mx.zeros([num_nodes, 2 * embed_dim])
+    previous_step_hidden_states = mx.zeros([num_nodes, model.processor_embed_dim])
     latents: List[mx.array] = []
 
-    for true_bfs_state, true_distance_bf in iter_execution_inputs(graph_data, extra_steps):
-        node_algo_features = mx.stack([true_bfs_state, true_distance_bf], axis=1)
+    for (
+        true_bfs_state,
+        true_distance_bf,
+        true_prim_state,
+        true_prim_key,
+    ) in iter_execution_inputs(graph_data, extra_steps):
+        node_algo_features = build_node_algo_features(
+            true_bfs_state,
+            true_distance_bf,
+            true_prim_state,
+            true_prim_key,
+        )
         input_embeddings = mx.concatenate(
             [previous_step_hidden_states, node_algo_features], axis=1
         )
 
         if latent_kind == "processed":
-            processed_embeddings, _, _, _ = compute_forward_latents(
+            processed_embeddings, _, _, _, _ = compute_forward_latents(
                 model, input_embeddings, graph_data["edge_matrix"]
             )
             latent = processed_embeddings
         elif latent_kind == "encoded":
-            processed_embeddings, encoded, _, _ = compute_forward_latents(
+            processed_embeddings, encoded, _, _, _ = compute_forward_latents(
                 model, input_embeddings, graph_data["edge_matrix"]
             )
             latent = encoded
         elif latent_kind == "encoded_bfs":
-            processed_embeddings, _, bfs_encoded, _ = compute_forward_latents(
+            processed_embeddings, _, bfs_encoded, _, _ = compute_forward_latents(
                 model, input_embeddings, graph_data["edge_matrix"]
             )
             latent = bfs_encoded
         elif latent_kind == "encoded_bf":
-            processed_embeddings, _, _, bf_encoded = compute_forward_latents(
+            processed_embeddings, _, _, bf_encoded, _ = compute_forward_latents(
                 model, input_embeddings, graph_data["edge_matrix"]
             )
             latent = bf_encoded
+        elif latent_kind == "encoded_prim":
+            processed_embeddings, _, _, _, prim_encoded = compute_forward_latents(
+                model, input_embeddings, graph_data["edge_matrix"]
+            )
+            latent = prim_encoded
         elif latent_kind == "processed_zero_bfs_input":
-            processed_embeddings, _, _, _ = compute_forward_latents(
+            processed_embeddings, _, _, _, _ = compute_forward_latents(
                 model,
                 input_embeddings,
                 graph_data["edge_matrix"],
                 zero_bfs_input=True,
                 zero_bf_input=False,
+                zero_prim_input=False,
             )
             latent = processed_embeddings
         elif latent_kind == "processed_zero_bf_input":
-            processed_embeddings, _, _, _ = compute_forward_latents(
+            processed_embeddings, _, _, _, _ = compute_forward_latents(
                 model,
                 input_embeddings,
                 graph_data["edge_matrix"],
                 zero_bfs_input=False,
                 zero_bf_input=True,
+                zero_prim_input=False,
+            )
+            latent = processed_embeddings
+        elif latent_kind == "processed_zero_prim_input":
+            processed_embeddings, _, _, _, _ = compute_forward_latents(
+                model,
+                input_embeddings,
+                graph_data["edge_matrix"],
+                zero_bfs_input=False,
+                zero_bf_input=False,
+                zero_prim_input=True,
             )
             latent = processed_embeddings
         else:

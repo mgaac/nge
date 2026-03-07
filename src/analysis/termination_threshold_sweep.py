@@ -17,12 +17,13 @@ from src.analysis.common import (
 )
 from src.data import load_dataset
 from src.train import evaluate_model
+from src.utils.task_specs import METRIC_INDEX, SELECT_TASK_CHOICES, TERMINATION_LATENT_CHOICES, resolve_selected_tasks
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Sweep termination thresholds and plot BF/BFS termination accuracy. "
+            "Sweep termination thresholds and plot BF/BFS/Prim termination accuracy. "
             "By default, sweep evaluation uses distance mode so legacy head-trained runs are supported."
         )
     )
@@ -55,9 +56,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--tasks",
         type=str,
-        choices=["all", "bf", "bfs"],
+        choices=SELECT_TASK_CHOICES,
         default="all",
-        help="Tasks to evaluate: all, bf, or bfs.",
+        help="Tasks to evaluate: all, bf, bfs, or prim.",
     )
     parser.add_argument(
         "--termination-mode",
@@ -73,7 +74,7 @@ def parse_args() -> argparse.Namespace:
         "--termination-latent",
         type=str,
         default=None,
-        choices=["processed", "encoded", "encoded_bfs", "encoded_bf"],
+        choices=TERMINATION_LATENT_CHOICES,
         help="Optional override for termination_distance_latent.",
     )
     parser.add_argument(
@@ -116,17 +117,6 @@ def parse_args() -> argparse.Namespace:
         help="Output directory for plot and JSON.",
     )
     return parser.parse_args()
-
-
-def resolve_selected_tasks(tasks_arg: str) -> dict[str, bool]:
-    if tasks_arg == "all":
-        return {"bf": True, "bfs": True}
-    if tasks_arg == "bf":
-        return {"bf": True, "bfs": False}
-    if tasks_arg == "bfs":
-        return {"bf": False, "bfs": True}
-    raise ValueError(f"Unknown tasks selection: {tasks_arg}")
-
 
 def parse_thresholds(args: argparse.Namespace) -> List[float]:
     if args.thresholds:
@@ -175,6 +165,7 @@ def save_plot(
     thresholds: List[float],
     bf_term_acc: List[float],
     bfs_term_acc: List[float],
+    prim_term_acc: List[float],
     split: str,
     latent: str,
     distance: str,
@@ -210,11 +201,22 @@ def save_plot(
         label="BFS termination acc",
         color="#d95f02",
     )
+    ax.plot(
+        thresholds,
+        prim_term_acc,
+        marker="^",
+        linewidth=1.8,
+        markersize=4,
+        label="Prim termination acc",
+        color="#7570b3",
+    )
     ax.set_xlabel("Termination threshold")
     ax.set_ylabel("Accuracy")
-    if bf_term_acc and bfs_term_acc:
-        first_points = np.array([bf_term_acc[0], bfs_term_acc[0]], dtype=np.float64)
-        all_points = np.array(bf_term_acc + bfs_term_acc, dtype=np.float64)
+    if bf_term_acc and bfs_term_acc and prim_term_acc:
+        first_points = np.array(
+            [bf_term_acc[0], bfs_term_acc[0], prim_term_acc[0]], dtype=np.float64
+        )
+        all_points = np.array(bf_term_acc + bfs_term_acc + prim_term_acc, dtype=np.float64)
 
         # Start with a local zoom around the first threshold point.
         y_min = float(np.min(first_points) - 0.05)
@@ -274,6 +276,7 @@ def main() -> None:
 
     bf_term_acc: List[float] = []
     bfs_term_acc: List[float] = []
+    prim_term_acc: List[float] = []
     losses: List[float] = []
 
     for threshold in thresholds:
@@ -288,8 +291,9 @@ def main() -> None:
             selected_tasks=selected_tasks,
         )
         losses.append(float(loss))
-        bf_term_acc.append(float(accuracies[3]))
-        bfs_term_acc.append(float(accuracies[4]))
+        bf_term_acc.append(float(accuracies[METRIC_INDEX["bf_termination"]]))
+        bfs_term_acc.append(float(accuracies[METRIC_INDEX["bfs_termination"]]))
+        prim_term_acc.append(float(accuracies[METRIC_INDEX["prim_termination"]]))
 
     output_dir = (
         Path(args.output_dir)
@@ -307,6 +311,7 @@ def main() -> None:
         thresholds=thresholds,
         bf_term_acc=bf_term_acc,
         bfs_term_acc=bfs_term_acc,
+        prim_term_acc=prim_term_acc,
         split=args.split,
         latent=config.model.termination_distance_latent,
         distance=config.model.termination_distance,
@@ -328,6 +333,7 @@ def main() -> None:
         "loss": losses,
         "acc_bf_termination": bf_term_acc,
         "acc_bfs_termination": bfs_term_acc,
+        "acc_prim_termination": prim_term_acc,
         "plot": str(plot_path),
     }
     with open(output_dir / f"{args.split}_threshold_sweep.json", "w") as f:

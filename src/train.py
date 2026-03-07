@@ -41,6 +41,18 @@ from src.utils.termination import (
     needs_aux_latents,
     resolve_termination_settings,
 )
+from src.utils.task_specs import (
+    METRIC_NAMES,
+    SELECT_TASK_CHOICES,
+    TERMINATION_LATENT_CHOICES,
+    build_node_algo_features,
+    effective_step_count,
+    execution_step_counts,
+    metric_counters,
+    metric_dict,
+    metric_mask,
+    resolve_selected_tasks,
+)
 
 
 def parse_args():
@@ -56,8 +68,8 @@ def parse_args():
                         help='Checkpoint directory or file to load (for --eval-only)')
     parser.add_argument('--eval-only', action='store_true',
                         help='Skip training and run evaluation only')
-    parser.add_argument('--tasks', type=str, default='all', choices=['all', 'bf', 'bfs'],
-                        help='Tasks to optimize/evaluate: all, bf, or bfs')
+    parser.add_argument('--tasks', type=str, default='all', choices=SELECT_TASK_CHOICES,
+                        help='Tasks to optimize/evaluate: all, bf, bfs, or prim')
     parser.add_argument('--termination-threshold', type=float, default=None,
                         help='Override termination_distance_threshold (useful in --eval-only)')
     parser.add_argument(
@@ -71,7 +83,7 @@ def parse_args():
         '--termination-latent',
         type=str,
         default=None,
-        choices=['processed', 'encoded', 'encoded_bfs', 'encoded_bf'],
+        choices=TERMINATION_LATENT_CHOICES,
         help='Override termination_distance_latent (useful in --eval-only)',
     )
     parser.add_argument('--disable-distance-termination-signal', action='store_true',
@@ -123,28 +135,6 @@ def parse_args():
         help='Also dump debug traces for top-K failed graphs.',
     )
     return parser.parse_args()
-
-
-def resolve_selected_tasks(tasks_arg: str) -> dict[str, bool]:
-    """Resolve CLI task selection into task enable flags."""
-    if tasks_arg == "all":
-        return {"bf": True, "bfs": True}
-    if tasks_arg == "bf":
-        return {"bf": True, "bfs": False}
-    if tasks_arg == "bfs":
-        return {"bf": False, "bfs": True}
-    raise ValueError(f"Unknown tasks selection: {tasks_arg}")
-
-
-def effective_step_count(bf_steps: int, bfs_steps: int, selected_tasks: dict[str, bool]) -> int:
-    """Choose the averaging denominator based on selected tasks."""
-    if selected_tasks["bf"] and selected_tasks["bfs"]:
-        return max(bf_steps, bfs_steps, 1)
-    if selected_tasks["bf"]:
-        return max(bf_steps, 1)
-    if selected_tasks["bfs"]:
-        return max(bfs_steps, 1)
-    return 1
 
 
 def parse_graph_indices(indices_arg: str | None) -> list[int]:
@@ -256,35 +246,28 @@ def graph_execution_loss_fn(model, graph_data, embed_dim, termination_cfg, selec
         Tuple of (average_loss, per_task_losses)
     """
     accumulated_loss = mx.array(0.0)
-    accumulated_aux_losses = mx.zeros([5])
+    accumulated_aux_losses = mx.zeros([len(METRIC_NAMES)])
 
     num_nodes = graph_data['num_nodes']
-    previous_step_hidden_states = mx.zeros([num_nodes, embed_dim * 2])
+    previous_step_hidden_states = mx.zeros([num_nodes, model.processor_embed_dim])
 
     num_bf_steps = len(graph_data['bf_distance_targets'])
     num_bfs_steps = len(graph_data['bfs_state_targets'])
+    num_prim_steps = len(graph_data['prim_key_targets'])
 
-    num_steps = max(num_bf_steps, num_bfs_steps)
+    num_steps = max(num_bf_steps, num_bfs_steps, num_prim_steps)
+    step_counts = execution_step_counts(graph_data)
     termination_settings = resolve_termination_settings(termination_cfg)
     previous_distance_latent = None
-    
-    loss_mask = mx.array(
-        [
-            1.0 if selected_tasks["bf"] else 0.0,
-            1.0 if selected_tasks["bf"] else 0.0,
-            1.0 if selected_tasks["bfs"] else 0.0,
-            1.0 if selected_tasks["bf"] else 0.0,
-            1.0 if selected_tasks["bfs"] else 0.0,
-        ],
-        dtype=mx.float32,
-    )
+    loss_mask = metric_mask(selected_tasks)
 
     for i in range(num_steps):
         # Check if samples exist
         bf_sample_exists = (i + 1) < num_bf_steps
         bfs_sample_exists = (i + 1) < num_bfs_steps
+        prim_sample_exists = (i + 1) < num_prim_steps
 
-        if not (bf_sample_exists or bfs_sample_exists):
+        if not (bf_sample_exists or bfs_sample_exists or prim_sample_exists):
             continue
 
         # Prepare data for current step
@@ -304,26 +287,46 @@ def graph_execution_loss_fn(model, graph_data, embed_dim, termination_cfg, selec
             target_distance_bf = graph_data['bf_distance_targets'][-1]
             target_predecessor_bf = graph_data['bf_predecessor_targets'][-1]
 
+        if prim_sample_exists:
+            true_prim_state = graph_data['prim_state_targets'][i]
+            target_prim_state = graph_data['prim_state_targets'][i + 1]
+            true_prim_key = graph_data['prim_key_targets'][i]
+            target_prim_key = graph_data['prim_key_targets'][i + 1]
+            target_prim_predecessor = graph_data['prim_predecessor_targets'][i + 1]
+        else:
+            true_prim_state = graph_data['prim_state_targets'][-1]
+            target_prim_state = graph_data['prim_state_targets'][-1]
+            true_prim_key = graph_data['prim_key_targets'][-1]
+            target_prim_key = graph_data['prim_key_targets'][-1]
+            target_prim_predecessor = graph_data['prim_predecessor_targets'][-1]
+
         # Generate termination targets
         is_last_bf_step = (i + 1) == (num_bf_steps - 1)
         is_last_bfs_step = (i + 1) == (num_bfs_steps - 1)
+        is_last_prim_step = (i + 1) == (num_prim_steps - 1)
         termination_targets = {
             'bf': mx.array(1.0 if is_last_bf_step else 0.0),
-            'bfs': mx.array(1.0 if is_last_bfs_step else 0.0)
+            'bfs': mx.array(1.0 if is_last_bfs_step else 0.0),
+            'prim': mx.array(1.0 if is_last_prim_step else 0.0),
         }
 
         # Prepare model inputs
-        node_algo_features = mx.stack([true_bfs_state, true_distance_bf], axis=1)
+        node_algo_features = build_node_algo_features(
+            true_bfs_state,
+            true_distance_bf,
+            true_prim_state,
+            true_prim_key,
+        )
         input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
         model_input = (input_embeddings, graph_data['edge_matrix'])
 
         need_aux = needs_aux_latents(termination_settings)
         if need_aux:
-            bfs_output, bf_output, termination_probs, processed_embeddings, aux = model(
+            bfs_output, bf_output, prim_output, termination_probs, processed_embeddings, aux = model(
                 model_input, return_latents=True
             )
         else:
-            bfs_output, bf_output, termination_probs, processed_embeddings = model(model_input)
+            bfs_output, bf_output, prim_output, termination_probs, processed_embeddings = model(model_input)
             aux = None
 
         if termination_settings["mode"] == "distance":
@@ -381,8 +384,65 @@ def graph_execution_loss_fn(model, graph_data, embed_dim, termination_cfg, selec
             bfs_state_loss = mx.array(0.0)
             bfs_termination_loss = mx.array(0.0)
 
+        if prim_sample_exists and selected_tasks["prim"]:
+            (
+                prim_state_predictions,
+                prim_key_predictions,
+                prim_predecessor_predictions,
+            ) = prim_output
+            prim_state_loss = nn.losses.binary_cross_entropy(
+                prim_state_predictions,
+                target_prim_state,
+                reduction='mean',
+                with_logits=True,
+            )
+            prim_key_loss = nn.losses.mse_loss(
+                prim_key_predictions,
+                target_prim_key,
+                reduction='mean',
+            )
+
+            valid_mask = (target_prim_predecessor != -1)
+            safe_targets = mx.where(
+                valid_mask,
+                target_prim_predecessor,
+                mx.zeros_like(target_prim_predecessor),
+            )
+            per_node_ce = nn.losses.cross_entropy(
+                prim_predecessor_predictions,
+                safe_targets,
+                reduction='none',
+            )
+            valid_mask_f = valid_mask.astype(mx.float32)
+            denom = mx.maximum(valid_mask_f.sum(), mx.array(1.0))
+            prim_predecessor_loss = (per_node_ce * valid_mask_f).sum() / denom
+
+            prim_termination_loss = nn.losses.binary_cross_entropy(
+                termination_logits['prim'],
+                termination_targets['prim'],
+                reduction='mean',
+                with_logits=True,
+            )
+            if termination_settings["mode"] == "distance" and not termination_settings["distance_signal"]:
+                prim_termination_loss = mx.array(0.0)
+        else:
+            prim_state_loss = mx.array(0.0)
+            prim_key_loss = mx.array(0.0)
+            prim_predecessor_loss = mx.array(0.0)
+            prim_termination_loss = mx.array(0.0)
+
         raw_losses = mx.array(
-            [bf_distance_loss, bf_predecessor_loss, bfs_state_loss, bf_termination_loss, bfs_termination_loss]
+            [
+                bf_distance_loss,
+                bf_predecessor_loss,
+                bfs_state_loss,
+                prim_state_loss,
+                prim_key_loss,
+                prim_predecessor_loss,
+                bf_termination_loss,
+                bfs_termination_loss,
+                prim_termination_loss,
+            ]
         )
         raw_losses = raw_losses * loss_mask
         total_step_loss = mx.sum(raw_losses)
@@ -393,18 +453,10 @@ def graph_execution_loss_fn(model, graph_data, embed_dim, termination_cfg, selec
         accumulated_aux_losses += raw_losses
 
     # Compute averages
-    bf_steps  = max(num_bf_steps  - 1, 0)
-    bfs_steps = max(num_bfs_steps - 1, 0)
-    effective_steps = effective_step_count(bf_steps, bfs_steps, selected_tasks)
+    effective_steps = effective_step_count(step_counts, selected_tasks)
 
     average_loss = accumulated_loss / effective_steps
-    per_task_counter = mx.array([
-        max(bf_steps, 1),
-        max(bf_steps, 1),
-        max(bfs_steps, 1),
-        max(bf_steps, 1),
-        max(bfs_steps, 1),
-    ], dtype=mx.float32)
+    per_task_counter = metric_counters(step_counts)
     avg_aux_losses = accumulated_aux_losses / per_task_counter
 
     return average_loss, avg_aux_losses
@@ -426,8 +478,8 @@ def evaluate_model(model, dataset, embed_dim, termination_cfg, selected_tasks):
     model.eval()
     
     accumulated_epoch_loss = mx.array(0.0)
-    accumulated_aux_losses = mx.zeros([5])
-    accumulated_accuracies = mx.zeros([5])
+    accumulated_aux_losses = mx.zeros([len(METRIC_NAMES)])
+    accumulated_accuracies = mx.zeros([len(METRIC_NAMES)])
 
     for graph_data in dataset:
         aux_losses, loss, accuracies = calculate_losses_and_accuracies(
@@ -448,7 +500,7 @@ def evaluate_model(model, dataset, embed_dim, termination_cfg, selected_tasks):
 def evaluate_model_accuracies_only(model, dataset, embed_dim, termination_cfg, selected_tasks):
     """Evaluate model and return only mean accuracies over the dataset."""
     model.eval()
-    accumulated_accuracies = mx.zeros([5])
+    accumulated_accuracies = mx.zeros([len(METRIC_NAMES)])
     for graph_data in dataset:
         accuracies = calculate_accuracies(
             model=model,
@@ -468,7 +520,7 @@ def save_termination_mispredict_distribution_plot(
     output_path: Path,
     split: str,
 ) -> None:
-    """Plot termination mispredict counts across execution steps for BF and BFS."""
+    """Plot termination mispredict counts across execution steps."""
     try:
         import matplotlib
 
@@ -479,10 +531,11 @@ def save_termination_mispredict_distribution_plot(
             "matplotlib is required to render failure-distribution plots."
         ) from exc
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5), sharey=True)
     panels = [
         ("BF termination mispredicts", "bf", "#1f77b4"),
         ("BFS termination mispredicts", "bfs", "#ff7f0e"),
+        ("Prim termination mispredicts", "prim", "#2ca02c"),
     ]
 
     for ax, (title, key, color) in zip(axes, panels):
@@ -547,7 +600,7 @@ def train_epoch(
     loss_and_grad_fn = nn.value_and_grad(model, graph_execution_loss_fn)
     
     accumulated_epoch_loss = mx.array(0.0)
-    accumulated_aux_losses = mx.zeros([5])
+    accumulated_aux_losses = mx.zeros([len(METRIC_NAMES)])
     accumulated_per_head_grads = {}
     
     permutation = mx.random.permutation(len(dataset))
@@ -613,12 +666,8 @@ def train_epoch(
         metrics = {
             "loss": float(avg_epoch_loss),
             "lr": float(optimizer.learning_rate),
-            "losses/bf_distance": float(avg_aux_losses[0]),
-            "losses/bf_predecessor": float(avg_aux_losses[1]),
-            "losses/bfs_state": float(avg_aux_losses[2]),
-            "losses/bf_termination": float(avg_aux_losses[3]),
-            "losses/bfs_termination": float(avg_aux_losses[4]),
         }
+        metrics.update(metric_dict("losses", avg_aux_losses))
         
         # Add gradient norms
         for head_name, grad_value in avg_per_head_grads.items():
@@ -761,41 +810,13 @@ def main():
                 model, test_dataset, config.model.embed_dim, config.model, selected_tasks
             )
 
-        val_payload = {
-            "acc/bf_distance": float(val_accuracies[0]),
-            "acc/bf_predecessor": float(val_accuracies[1]),
-            "acc/bfs_state": float(val_accuracies[2]),
-            "acc/bf_termination": float(val_accuracies[3]),
-            "acc/bfs_termination": float(val_accuracies[4]),
-        }
-        test_payload = {
-            "acc/bf_distance": float(test_accuracies[0]),
-            "acc/bf_predecessor": float(test_accuracies[1]),
-            "acc/bfs_state": float(test_accuracies[2]),
-            "acc/bf_termination": float(test_accuracies[3]),
-            "acc/bfs_termination": float(test_accuracies[4]),
-        }
+        val_payload = metric_dict("acc", val_accuracies)
+        test_payload = metric_dict("acc", test_accuracies)
         if not args.accuracies_only:
-            val_payload.update(
-                {
-                    "loss": float(val_loss),
-                    "losses/bf_distance": float(val_aux_losses[0]),
-                    "losses/bf_predecessor": float(val_aux_losses[1]),
-                    "losses/bfs_state": float(val_aux_losses[2]),
-                    "losses/bf_termination": float(val_aux_losses[3]),
-                    "losses/bfs_termination": float(val_aux_losses[4]),
-                }
-            )
-            test_payload.update(
-                {
-                    "loss": float(test_loss),
-                    "losses/bf_distance": float(test_aux_losses[0]),
-                    "losses/bf_predecessor": float(test_aux_losses[1]),
-                    "losses/bfs_state": float(test_aux_losses[2]),
-                    "losses/bf_termination": float(test_aux_losses[3]),
-                    "losses/bfs_termination": float(test_aux_losses[4]),
-                }
-            )
+            val_payload["loss"] = float(val_loss)
+            val_payload.update(metric_dict("losses", val_aux_losses))
+            test_payload["loss"] = float(test_loss)
+            test_payload.update(metric_dict("losses", test_aux_losses))
 
         results = {
             "checkpoint_step": step,
@@ -815,16 +836,30 @@ def main():
         if not args.accuracies_only:
             print(f"Val loss: {val_loss:.6f}")
         print(
-            f"Val accuracies: BF_dist={val_accuracies[0]:.3f}, "
-            f"BF_pred={val_accuracies[1]:.3f}, BFS={val_accuracies[2]:.3f}, "
-            f"BF_term={val_accuracies[3]:.3f}, BFS_term={val_accuracies[4]:.3f}"
+            "Val accuracies: "
+            f"BF_dist={val_accuracies[0]:.3f}, "
+            f"BF_pred={val_accuracies[1]:.3f}, "
+            f"BFS={val_accuracies[2]:.3f}, "
+            f"Prim_state={val_accuracies[3]:.3f}, "
+            f"Prim_key={val_accuracies[4]:.3f}, "
+            f"Prim_pred={val_accuracies[5]:.3f}, "
+            f"BF_term={val_accuracies[6]:.3f}, "
+            f"BFS_term={val_accuracies[7]:.3f}, "
+            f"Prim_term={val_accuracies[8]:.3f}"
         )
         if not args.accuracies_only:
             print(f"Test loss: {test_loss:.6f}")
         print(
-            f"Test accuracies: BF_dist={test_accuracies[0]:.3f}, "
-            f"BF_pred={test_accuracies[1]:.3f}, BFS={test_accuracies[2]:.3f}, "
-            f"BF_term={test_accuracies[3]:.3f}, BFS_term={test_accuracies[4]:.3f}"
+            "Test accuracies: "
+            f"BF_dist={test_accuracies[0]:.3f}, "
+            f"BF_pred={test_accuracies[1]:.3f}, "
+            f"BFS={test_accuracies[2]:.3f}, "
+            f"Prim_state={test_accuracies[3]:.3f}, "
+            f"Prim_key={test_accuracies[4]:.3f}, "
+            f"Prim_pred={test_accuracies[5]:.3f}, "
+            f"BF_term={test_accuracies[6]:.3f}, "
+            f"BFS_term={test_accuracies[7]:.3f}, "
+            f"Prim_term={test_accuracies[8]:.3f}"
         )
 
         with open(output_dir / "eval_only.json", "w") as f:
@@ -1007,35 +1042,27 @@ def main():
             )
 
             # Log validation metrics
-            val_metrics = {
-                "loss": float(val_loss),
-                "acc/bf_distance": float(val_accuracies[0]),
-                "acc/bf_predecessor": float(val_accuracies[1]),
-                "acc/bfs_state": float(val_accuracies[2]),
-                "acc/bf_termination": float(val_accuracies[3]),
-                "acc/bfs_termination": float(val_accuracies[4]),
-                "losses/bf_distance": float(val_aux_losses[0]),
-                "losses/bf_predecessor": float(val_aux_losses[1]),
-                "losses/bfs_state": float(val_aux_losses[2]),
-                "losses/bf_termination": float(val_aux_losses[3]),
-                "losses/bfs_termination": float(val_aux_losses[4]),
-            }
+            val_metrics = {"loss": float(val_loss)}
+            val_metrics.update(metric_dict("acc", val_accuracies))
+            val_metrics.update(metric_dict("losses", val_aux_losses))
             logger.log(epoch, val_metrics, split="val")
 
             # Log train accuracies
-            train_acc_metrics = {
-                "acc/bf_distance": float(train_accuracies[0]),
-                "acc/bf_predecessor": float(train_accuracies[1]),
-                "acc/bfs_state": float(train_accuracies[2]),
-                "acc/bf_termination": float(train_accuracies[3]),
-                "acc/bfs_termination": float(train_accuracies[4]),
-            }
+            train_acc_metrics = metric_dict("acc", train_accuracies)
             logger.log(epoch, train_acc_metrics, split="train_eval")
 
             print(f"Val loss: {val_loss:.6f}")
             print(
-                f"Val accuracies: BF_dist={val_accuracies[0]:.3f}, "
-                f"BF_pred={val_accuracies[1]:.3f}, BFS={val_accuracies[2]:.3f}"
+                "Val accuracies: "
+                f"BF_dist={val_accuracies[0]:.3f}, "
+                f"BF_pred={val_accuracies[1]:.3f}, "
+                f"BFS={val_accuracies[2]:.3f}, "
+                f"Prim_state={val_accuracies[3]:.3f}, "
+                f"Prim_key={val_accuracies[4]:.3f}, "
+                f"Prim_pred={val_accuracies[5]:.3f}, "
+                f"BF_term={val_accuracies[6]:.3f}, "
+                f"BFS_term={val_accuracies[7]:.3f}, "
+                f"Prim_term={val_accuracies[8]:.3f}"
             )
 
         # Checkpointing
@@ -1050,14 +1077,8 @@ def main():
         model, test_dataset, config.model.embed_dim, config.model, selected_tasks
     )
 
-    test_metrics = {
-        "loss": float(test_loss),
-        "acc/bf_distance": float(test_accuracies[0]),
-        "acc/bf_predecessor": float(test_accuracies[1]),
-        "acc/bfs_state": float(test_accuracies[2]),
-        "acc/bf_termination": float(test_accuracies[3]),
-        "acc/bfs_termination": float(test_accuracies[4]),
-    }
+    test_metrics = {"loss": float(test_loss)}
+    test_metrics.update(metric_dict("acc", test_accuracies))
     logger.log(config.training.epochs, test_metrics, split="test")
     logger.log_summary({"final_" + k: v for k, v in test_metrics.items()})
 
@@ -1066,8 +1087,12 @@ def main():
     print(f"  BF Distance Acc: {test_accuracies[0]:.3f}")
     print(f"  BF Predecessor Acc: {test_accuracies[1]:.3f}")
     print(f"  BFS State Acc: {test_accuracies[2]:.3f}")
-    print(f"  BF Termination Acc: {test_accuracies[3]:.3f}")
-    print(f"  BFS Termination Acc: {test_accuracies[4]:.3f}")
+    print(f"  Prim State Acc: {test_accuracies[3]:.3f}")
+    print(f"  Prim Key Acc: {test_accuracies[4]:.3f}")
+    print(f"  Prim Predecessor Acc: {test_accuracies[5]:.3f}")
+    print(f"  BF Termination Acc: {test_accuracies[6]:.3f}")
+    print(f"  BFS Termination Acc: {test_accuracies[7]:.3f}")
+    print(f"  Prim Termination Acc: {test_accuracies[8]:.3f}")
 
     # Final checkpoint
     if config.logging.save_checkpoints:

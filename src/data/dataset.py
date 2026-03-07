@@ -87,6 +87,7 @@ def append_uniform_edge_weights(
     weighted_matrix = mx.concatenate([edge_matrix, weights.reshape(1, -1)], axis=0)
     return weighted_matrix
 
+
 def bellman_ford_log(
     edges: mx.array,
     source: int,
@@ -157,30 +158,40 @@ def bellman_ford_log(
     return distance_log, predecessor_log
 
 
-def clean_bf_logs(log: List[List[float]] | List[List[int | None]]) -> mx.array:
+def clean_distance_log(log: List[List[float]]) -> mx.array:
+    """Normalize Bellman-Ford distances to [0, 1] and map infinity to 1."""
     if not log or not log[-1]:
         return mx.array(log)
 
-    is_distance = isinstance(log[0][0], float)
+    final = log[-1]
+    finite = [value for value in final if value != float("inf")]
+    scale = (max(finite) + 1.0) if finite else 1.0
 
-    if is_distance:
-        final = log[-1]
-        finite = [x for x in final if x != float('inf')]
-        S = (max(finite) + 1.0) if finite else 1.0
+    normalized = []
+    for state in log:
+        normalized.append(
+            [((scale if value == float("inf") else value) / scale) for value in state]
+        )
+    return mx.array(normalized, dtype=mx.float32)
 
-        norm_log = []
-        for state in log:
-            state_norm = [((S if x == float('inf') else x) / S) for x in state]
-            norm_log.append(state_norm)
-        return mx.array(norm_log, dtype=mx.float32)
 
-    else:
-        # Predecessors: replace None with -1 (sentinel for "no predecessor")
-        cleaned = []
-        for state in log:
-            cleaned_state = [(-1 if x is None else x) for i, x in enumerate(state)]
-            cleaned.append(cleaned_state)
-        return mx.array(cleaned, dtype=mx.int32)
+def clean_key_log(log: List[List[float]]) -> mx.array:
+    """Keep Prim keys in their natural scale and map infinity to 1."""
+    if not log or not log[-1]:
+        return mx.array(log)
+
+    cleaned = []
+    for state in log:
+        cleaned.append([1.0 if value == float("inf") else value for value in state])
+    return mx.array(cleaned, dtype=mx.float32)
+
+
+def clean_predecessor_log(log: List[List[int | None]]) -> mx.array:
+    """Replace missing predecessors with -1."""
+    cleaned = []
+    for state in log:
+        cleaned.append([(-1 if value is None else value) for value in state])
+    return mx.array(cleaned, dtype=mx.int32)
 
 
 def bfs_log(
@@ -221,6 +232,72 @@ def bfs_log(
 
     return reachability_log
 
+
+def prim_log(
+    edges: mx.array,
+    source: int,
+    num_nodes: int,
+) -> tuple[List[List[int]], List[List[float]], List[List[int | None]]]:
+    """Log Prim execution on the source-connected component of an undirected graph."""
+    if edges.size == 0:
+        return [], [], []
+
+    neighbors: List[List[Tuple[int, float]]] = [[] for _ in range(num_nodes)]
+    for k in range(edges.shape[1]):
+        u = int(edges[0, k])
+        v = int(edges[1, k])
+        w = float(edges[2, k])
+        neighbors[u].append((v, w))
+
+    in_mst: List[int] = [0] * num_nodes
+    key: List[float] = [inf] * num_nodes
+    predecessor: List[int | None] = [None] * num_nodes
+
+    key[source] = 0.0
+    predecessor[source] = source
+
+    in_mst_log = [in_mst.copy()]
+    key_log = [key.copy()]
+    predecessor_log = [predecessor.copy()]
+
+    for _ in range(num_nodes):
+        next_node = None
+        next_key = inf
+
+        for node in range(num_nodes):
+            if in_mst[node]:
+                continue
+            node_key = key[node]
+            if node_key < next_key or (node_key == next_key and next_node is not None and node < next_node):
+                next_key = node_key
+                next_node = node
+            elif next_node is None:
+                next_key = node_key
+                next_node = node
+
+        if next_node is None or next_key == inf:
+            break
+
+        in_mst[next_node] = 1
+
+        for neighbor, weight in neighbors[next_node]:
+            if in_mst[neighbor]:
+                continue
+            current_pred = predecessor[neighbor]
+            if weight < key[neighbor]:
+                key[neighbor] = weight
+                predecessor[neighbor] = next_node
+            elif weight == key[neighbor] and (
+                current_pred is None or next_node < current_pred
+            ):
+                predecessor[neighbor] = next_node
+
+        in_mst_log.append(in_mst.copy())
+        key_log.append(key.copy())
+        predecessor_log.append(predecessor.copy())
+
+    return in_mst_log, key_log, predecessor_log
+
 def generated_dataset(num_graphs=100, num_nodes=20, p=0.2, m=2):
 
     dataset = []
@@ -236,12 +313,20 @@ def generated_dataset(num_graphs=100, num_nodes=20, p=0.2, m=2):
 
         # Bellman-Ford logs
         bf_distance, bf_predecessor = bellman_ford_log(edge_matrix, source_node, num_nodes)
-        bf_distance = clean_bf_logs(bf_distance)
-        bf_predecessor = clean_bf_logs(bf_predecessor)
+        bf_distance = clean_distance_log(bf_distance)
+        bf_predecessor = clean_predecessor_log(bf_predecessor)
 
         # BFS logs
         bfs_reachability = bfs_log(edge_matrix, source_node, num_nodes)
-        bfs_reachability = mx.array(bfs_reachability)
+        bfs_reachability = mx.array(bfs_reachability, dtype=mx.float32)
+
+        # Prim logs
+        prim_state, prim_key, prim_predecessor = prim_log(
+            edge_matrix, source_node, num_nodes
+        )
+        prim_state = mx.array(prim_state, dtype=mx.float32)
+        prim_key = clean_key_log(prim_key)
+        prim_predecessor = clean_predecessor_log(prim_predecessor)
 
         graph_dict = {
             "num_nodes": num_nodes,
@@ -250,6 +335,9 @@ def generated_dataset(num_graphs=100, num_nodes=20, p=0.2, m=2):
             "bf_distance_targets": bf_distance,
             "bf_predecessor_targets": bf_predecessor,
             "bfs_state_targets": bfs_reachability,
+            "prim_state_targets": prim_state,
+            "prim_key_targets": prim_key,
+            "prim_predecessor_targets": prim_predecessor,
         }
         dataset.append(graph_dict)
 
@@ -273,6 +361,11 @@ def save_dataset(dataset, filename):
         save_dict[f"bf_distance_targets_{i}"] = np.array(graph_dict["bf_distance_targets"])
         save_dict[f"bf_predecessor_targets_{i}"] = np.array(graph_dict["bf_predecessor_targets"])
         save_dict[f"bfs_state_targets_{i}"] = np.array(graph_dict["bfs_state_targets"])
+        save_dict[f"prim_state_targets_{i}"] = np.array(graph_dict["prim_state_targets"])
+        save_dict[f"prim_key_targets_{i}"] = np.array(graph_dict["prim_key_targets"])
+        save_dict[f"prim_predecessor_targets_{i}"] = np.array(
+            graph_dict["prim_predecessor_targets"]
+        )
     
     np.savez_compressed(filename, **save_dict)
 
@@ -293,6 +386,11 @@ def load_dataset(filename):
             "bf_distance_targets": mx.array(loaded[f"bf_distance_targets_{i}"]),
             "bf_predecessor_targets": mx.array(loaded[f"bf_predecessor_targets_{i}"]),
             "bfs_state_targets": mx.array(loaded[f"bfs_state_targets_{i}"]),
+            "prim_state_targets": mx.array(loaded[f"prim_state_targets_{i}"]),
+            "prim_key_targets": mx.array(loaded[f"prim_key_targets_{i}"]),
+            "prim_predecessor_targets": mx.array(
+                loaded[f"prim_predecessor_targets_{i}"]
+            ),
         }
         dataset.append(graph_dict)
     

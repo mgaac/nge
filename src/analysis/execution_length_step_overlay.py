@@ -27,6 +27,7 @@ from src.analysis.common import (
 )
 from src.analysis.embedding_trajectories import collect_graph_trajectory, count_execution_steps
 from src.data import load_dataset
+from src.utils.task_specs import ANALYSIS_LATENT_CHOICES
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,14 +55,7 @@ def parse_args() -> argparse.Namespace:
         "--latent",
         type=str,
         default="processed",
-        choices=[
-            "processed",
-            "encoded",
-            "encoded_bfs",
-            "encoded_bf",
-            "processed_zero_bfs_input",
-            "processed_zero_bf_input",
-        ],
+        choices=ANALYSIS_LATENT_CHOICES,
         help="Latent type forwarded to embedding_trajectories.",
     )
     parser.add_argument(

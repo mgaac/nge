@@ -1,13 +1,15 @@
 """Neural Graph Execution (NGE) model implementation.
 
 This module implements a graph neural network for executing graph algorithms,
-specifically Bellman-Ford and BFS, using message passing neural networks.
+specifically Bellman-Ford, BFS, and Prim, using message passing neural networks.
 """
 
 import mlx.core as mx
 import mlx.nn as nn
 
 from enum import Enum
+
+from src.utils.task_specs import INPUT_FEATURE_DIM
 
 
 class AggregationFn(Enum):
@@ -131,12 +133,14 @@ class MPNN(nn.Module):
 class BFSDecoder(nn.Module):
     """Decoder for BFS state predictions."""
 
-    def __init__(self, embed_dim: int):
+    def __init__(self, embed_dim: int, processor_embed_dim: int):
         super(BFSDecoder, self).__init__()
 
         self.embed_dim = embed_dim
-        self.bfs_state_outputs = nn.Linear(int(embed_dim * 3), 1, bias=False)
-        self.layer_norm = nn.LayerNorm(embed_dim * 3)
+        self.processor_embed_dim = processor_embed_dim
+        self.input_dim = processor_embed_dim + embed_dim
+        self.bfs_state_outputs = nn.Linear(self.input_dim, 1, bias=False)
+        self.layer_norm = nn.LayerNorm(self.input_dim)
 
     def __call__(self, data):
         processed_embeddings, encoded_embeddings = data
@@ -149,29 +153,22 @@ class BFSDecoder(nn.Module):
         return bfs_state_predictions
 
 
-class BFDecoder(nn.Module):
-    """Decoder for Bellman-Ford distance and predecessor predictions."""
+class EdgePointerHead(nn.Module):
+    """Shared edge-wise pointer head for predecessor prediction."""
 
-    def __init__(self, embed_dim: int):
-        super(BFDecoder, self).__init__()
+    def __init__(self, embed_dim: int, processor_embed_dim: int):
+        super().__init__()
 
         self.source_idx = 0
         self.target_idx = 1
-
         self.embed_dim = embed_dim
+        self.processor_embed_dim = processor_embed_dim
+        self.input_dim = 2 * embed_dim + 2 * processor_embed_dim + 1
 
-        # Simple linear heads as per paper
-        # processed_embeddings is 2*embed_dim, encoded is embed_dim
+        self.pointer_head = nn.Linear(self.input_dim, 1, bias=True)
+        self.pointer_ln = nn.LayerNorm(self.input_dim)
 
-        self.distance_head = nn.Linear(3 * embed_dim, 1, bias=True)
-        self.predecessor_head = nn.Linear(6 * embed_dim + 1, 1, bias=True)
-
-        self.distance_ln = nn.LayerNorm(3 * embed_dim)
-        self.predecessor_ln = nn.LayerNorm(6 * embed_dim + 1)
-
-    def __call__(self, data):
-        processed_embeddings, encoded_embeddings, connection_matrix = data
-
+    def __call__(self, encoded_embeddings, processed_embeddings, connection_matrix):
         num_nodes = processed_embeddings.shape[0]
 
         edge_weights = mx.expand_dims(connection_matrix[2], axis=-1)
@@ -179,22 +176,13 @@ class BFDecoder(nn.Module):
         source_idx = connection_matrix[self.source_idx].astype(mx.int32)
         target_idx = connection_matrix[self.target_idx].astype(mx.int32)
 
-        # Distance prediction: concatenate processed + encoded for each node
-        joint_embeddings = mx.concatenate(
-            [processed_embeddings, encoded_embeddings], axis=1
-        )
-        joint_embeddings = self.distance_ln(joint_embeddings)
-        bf_distance_predictions = self.distance_head(joint_embeddings).squeeze()
-
-        # Predecessor prediction: concatenate source and target (don't add)
         encoded_source_embeddings = mx.take(encoded_embeddings, source_idx, axis=0)
         encoded_target_embeddings = mx.take(encoded_embeddings, target_idx, axis=0)
 
         processed_source_embeddings = mx.take(processed_embeddings, source_idx, axis=0)
         processed_target_embeddings = mx.take(processed_embeddings, target_idx, axis=0)
 
-        # Concatenate all features (preserves directional information)
-        concatenated_embeddings = mx.concatenate(
+        pointer_input = mx.concatenate(
             [
                 encoded_source_embeddings,
                 encoded_target_embeddings,
@@ -204,15 +192,80 @@ class BFDecoder(nn.Module):
             ],
             axis=1,
         )
-        concatenated_embeddings = self.predecessor_ln(concatenated_embeddings)
+        pointer_input = self.pointer_ln(pointer_input)
 
-        edge_logits = self.predecessor_head(concatenated_embeddings).squeeze()
+        edge_logits = self.pointer_head(pointer_input).squeeze()
 
-        # Use -inf instead of -1e6 for better numerical stability
-        bf_predecessor_predictions = mx.full([num_nodes, num_nodes], -1e6)
-        bf_predecessor_predictions[target_idx, source_idx] = edge_logits
+        predecessor_predictions = mx.full([num_nodes, num_nodes], -1e6)
+        predecessor_predictions[target_idx, source_idx] = edge_logits
+        return predecessor_predictions
+
+
+class BFDecoder(nn.Module):
+    """Decoder for Bellman-Ford distance and predecessor predictions."""
+
+    def __init__(self, embed_dim: int, processor_embed_dim: int):
+        super(BFDecoder, self).__init__()
+
+        self.embed_dim = embed_dim
+        self.processor_embed_dim = processor_embed_dim
+        self.distance_input_dim = processor_embed_dim + embed_dim
+
+        self.distance_head = nn.Linear(self.distance_input_dim, 1, bias=True)
+        self.distance_ln = nn.LayerNorm(self.distance_input_dim)
+        self.pointer_head = EdgePointerHead(embed_dim, processor_embed_dim)
+
+    def __call__(self, data):
+        processed_embeddings, encoded_embeddings, connection_matrix = data
+
+        # Distance prediction: concatenate processed + encoded for each node
+        joint_embeddings = mx.concatenate(
+            [processed_embeddings, encoded_embeddings], axis=1
+        )
+        joint_embeddings = self.distance_ln(joint_embeddings)
+        bf_distance_predictions = self.distance_head(joint_embeddings).squeeze()
+
+        bf_predecessor_predictions = self.pointer_head(
+            encoded_embeddings, processed_embeddings, connection_matrix
+        )
 
         return bf_distance_predictions, bf_predecessor_predictions
+
+
+class PrimDecoder(nn.Module):
+    """Decoder for Prim state, key, and predecessor predictions."""
+
+    def __init__(self, embed_dim: int, processor_embed_dim: int):
+        super().__init__()
+
+        self.embed_dim = embed_dim
+        self.processor_embed_dim = processor_embed_dim
+        self.state_input_dim = processor_embed_dim + embed_dim
+
+        self.state_head = nn.Linear(self.state_input_dim, 1, bias=True)
+        self.key_head = nn.Linear(self.state_input_dim, 1, bias=True)
+        self.state_ln = nn.LayerNorm(self.state_input_dim)
+        self.pointer_head = EdgePointerHead(embed_dim, processor_embed_dim)
+
+    def __call__(self, data):
+        processed_embeddings, encoded_embeddings, connection_matrix = data
+
+        joint_embeddings = mx.concatenate(
+            [processed_embeddings, encoded_embeddings], axis=1
+        )
+        joint_embeddings = self.state_ln(joint_embeddings)
+
+        prim_state_predictions = self.state_head(joint_embeddings).squeeze()
+        prim_key_predictions = self.key_head(joint_embeddings).squeeze()
+        prim_predecessor_predictions = self.pointer_head(
+            encoded_embeddings, processed_embeddings, connection_matrix
+        )
+
+        return (
+            prim_state_predictions,
+            prim_key_predictions,
+            prim_predecessor_predictions,
+        )
 
 
 class NGE(nn.Module):
@@ -229,19 +282,24 @@ class NGE(nn.Module):
         super(NGE, self).__init__()
 
         self.embed_dim = embed_dim
-        self.ln = nn.LayerNorm(2 * embed_dim)
+        self.processor_embed_dim = 3 * embed_dim
+        self.input_dim = self.processor_embed_dim + INPUT_FEATURE_DIM
+        self.ln = nn.LayerNorm(self.processor_embed_dim)
 
-        self.bfs_encoder = nn.Linear(2 * embed_dim + 2, embed_dim)
-        self.bf_encoder = nn.Linear(2 * embed_dim + 2, embed_dim)
+        self.bfs_encoder = nn.Linear(self.input_dim, embed_dim)
+        self.bf_encoder = nn.Linear(self.input_dim, embed_dim)
+        self.prim_encoder = nn.Linear(self.input_dim, embed_dim)
 
-        self.bfs_decoder = BFSDecoder(embed_dim)
-        self.bf_decoder = BFDecoder(embed_dim)
+        self.bfs_decoder = BFSDecoder(embed_dim, self.processor_embed_dim)
+        self.bf_decoder = BFDecoder(embed_dim, self.processor_embed_dim)
+        self.prim_decoder = PrimDecoder(embed_dim, self.processor_embed_dim)
 
-        self.bfs_termination = nn.Linear(2 * embed_dim, 1, bias=True)
-        self.bf_termination = nn.Linear(2 * embed_dim, 1, bias=True)
+        self.bfs_termination = nn.Linear(self.processor_embed_dim, 1, bias=True)
+        self.bf_termination = nn.Linear(self.processor_embed_dim, 1, bias=True)
+        self.prim_termination = nn.Linear(self.processor_embed_dim, 1, bias=True)
 
         self.processor = MPNN(
-            2 * embed_dim,
+            self.processor_embed_dim,
             residual_connections,
             agg_fn,
             num_mp_layers,
@@ -253,9 +311,10 @@ class NGE(nn.Module):
 
         bfs_encoded_embeddings = self.bfs_encoder(node_embeddings)
         bf_encoded_embeddings = self.bf_encoder(node_embeddings)
+        prim_encoded_embeddings = self.prim_encoder(node_embeddings)
 
         encoded_embeddings = mx.concatenate(
-            [bfs_encoded_embeddings, bf_encoded_embeddings], axis=1
+            [bfs_encoded_embeddings, bf_encoded_embeddings, prim_encoded_embeddings], axis=1
         )
         encoded_embeddings = self.ln(encoded_embeddings)
 
@@ -265,22 +324,37 @@ class NGE(nn.Module):
         bf_output = self.bf_decoder(
             (processed_embeddings, bf_encoded_embeddings, connection_matrix)
         )
+        prim_output = self.prim_decoder(
+            (processed_embeddings, prim_encoded_embeddings, connection_matrix)
+        )
 
         avg_embeddings = mx.mean(processed_embeddings, axis=0)
 
         bfs_termination_prob = self.bfs_termination(avg_embeddings).squeeze()
-
         bf_termination_prob = self.bf_termination(avg_embeddings).squeeze()
+        prim_termination_prob = self.prim_termination(avg_embeddings).squeeze()
 
-        termination_probs = {"bfs": bfs_termination_prob, "bf": bf_termination_prob}
+        termination_probs = {
+            "bfs": bfs_termination_prob,
+            "bf": bf_termination_prob,
+            "prim": prim_termination_prob,
+        }
 
         if return_latents:
             aux = {
                 "bfs_encoded": bfs_encoded_embeddings,
                 "bf_encoded": bf_encoded_embeddings,
+                "prim_encoded": prim_encoded_embeddings,
                 "encoded": encoded_embeddings,
                 "avg_processed": avg_embeddings,
             }
-            return bfs_output, bf_output, termination_probs, processed_embeddings, aux
+            return (
+                bfs_output,
+                bf_output,
+                prim_output,
+                termination_probs,
+                processed_embeddings,
+                aux,
+            )
 
-        return bfs_output, bf_output, termination_probs, processed_embeddings
+        return bfs_output, bf_output, prim_output, termination_probs, processed_embeddings

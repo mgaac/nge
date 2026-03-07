@@ -1,4 +1,4 @@
-"""Visualize BF/BFS execution-step distributions for a dataset."""
+"""Visualize BF/BFS/Prim execution-step distributions for a dataset."""
 
 from __future__ import annotations
 
@@ -42,10 +42,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def execution_steps(graph: dict) -> tuple[int, int]:
+def execution_steps(graph: dict) -> tuple[int, int, int]:
     bf_steps = max(len(graph["bf_distance_targets"]) - 1, 0)
     bfs_steps = max(len(graph["bfs_state_targets"]) - 1, 0)
-    return bf_steps, bfs_steps
+    prim_steps = max(len(graph["prim_key_targets"]) - 1, 0)
+    return bf_steps, bfs_steps, prim_steps
 
 
 def integer_distribution(values: list[int]) -> dict[int, int]:
@@ -77,6 +78,7 @@ def summarize(values: list[int]) -> dict:
 def save_plot(
     bf_dist: dict[int, int],
     bfs_dist: dict[int, int],
+    prim_dist: dict[int, int],
     num_graphs: int,
     output_path: Path,
     title: str | None,
@@ -91,10 +93,11 @@ def save_plot(
             "matplotlib is required to render dataset step distributions."
         ) from exc
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5), sharey=True)
     series = [
         ("BF execution steps", bf_dist, "#1f77b4"),
         ("BFS execution steps", bfs_dist, "#ff7f0e"),
+        ("Prim execution steps", prim_dist, "#2ca02c"),
     ]
 
     for ax, (subplot_title, dist, color) in zip(axes, series):
@@ -132,23 +135,38 @@ def main() -> None:
 
     bf_steps: list[int] = []
     bfs_steps: list[int] = []
+    prim_steps: list[int] = []
     equal_count = 0
     bf_gt_count = 0
     bfs_gt_count = 0
+    bf_gt_prim_count = 0
+    prim_gt_bf_count = 0
+    bfs_gt_prim_count = 0
+    prim_gt_bfs_count = 0
 
     for graph in dataset:
-        bf, bfs = execution_steps(graph)
+        bf, bfs, prim = execution_steps(graph)
         bf_steps.append(bf)
         bfs_steps.append(bfs)
-        if bf == bfs:
+        prim_steps.append(prim)
+        if bf == bfs == prim:
             equal_count += 1
-        elif bf > bfs:
+        if bf > bfs:
             bf_gt_count += 1
-        else:
+        elif bfs > bf:
             bfs_gt_count += 1
+        if bf > prim:
+            bf_gt_prim_count += 1
+        elif prim > bf:
+            prim_gt_bf_count += 1
+        if bfs > prim:
+            bfs_gt_prim_count += 1
+        elif prim > bfs:
+            prim_gt_bfs_count += 1
 
     bf_dist = integer_distribution(bf_steps)
     bfs_dist = integer_distribution(bfs_steps)
+    prim_dist = integer_distribution(prim_steps)
 
     output_dir = (
         Path(args.output_dir)
@@ -161,6 +179,7 @@ def main() -> None:
     save_plot(
         bf_dist=bf_dist,
         bfs_dist=bfs_dist,
+        prim_dist=prim_dist,
         num_graphs=len(dataset),
         output_path=plot_path,
         title=args.title,
@@ -177,10 +196,18 @@ def main() -> None:
             "distribution": bfs_dist,
             "summary": summarize(bfs_steps),
         },
+        "prim_steps": {
+            "distribution": prim_dist,
+            "summary": summarize(prim_steps),
+        },
         "relation_counts": {
-            "equal": equal_count,
+            "all_equal": equal_count,
             "bf_gt_bfs": bf_gt_count,
             "bfs_gt_bf": bfs_gt_count,
+            "bf_gt_prim": bf_gt_prim_count,
+            "prim_gt_bf": prim_gt_bf_count,
+            "bfs_gt_prim": bfs_gt_prim_count,
+            "prim_gt_bfs": prim_gt_bfs_count,
         },
         "plot": str(plot_path),
     }

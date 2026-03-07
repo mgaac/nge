@@ -17,6 +17,7 @@ import pytest
 import mlx.core as mx
 import mlx.optimizers as optim
 
+from src.data.dataset import generated_dataset, load_dataset, save_dataset
 from src.model import NGE, AggregationFn
 from src.utils import (
     ExperimentConfig,
@@ -238,6 +239,64 @@ def test_checkpoint_resume_correctness(temp_dir, sample_model):
     # Test latest checkpoint marker
     latest_step = manager.get_latest_step()
     assert latest_step == 100, f"Latest step should be 100, got {latest_step}"
+
+
+def test_dataset_roundtrip_preserves_prim_targets(temp_dir):
+    """Generated datasets must serialize and restore Prim supervision."""
+    dataset = generated_dataset(num_graphs=2, num_nodes=6, p=0.5, m=2)
+    path = temp_dir / "dataset.npz"
+    save_dataset(dataset, path)
+    loaded = load_dataset(path)
+
+    assert len(loaded) == len(dataset)
+    sample = loaded[0]
+    assert "prim_state_targets" in sample
+    assert "prim_key_targets" in sample
+    assert "prim_predecessor_targets" in sample
+    assert sample["prim_state_targets"].shape[0] == sample["prim_key_targets"].shape[0]
+    assert sample["prim_key_targets"].shape[0] == sample["prim_predecessor_targets"].shape[0]
+
+
+def test_model_forward_returns_prim_outputs():
+    """Model forward pass must expose Prim heads and termination logits."""
+    dataset = generated_dataset(num_graphs=1, num_nodes=6, p=0.5, m=2)
+    graph = dataset[0]
+    model = NGE(
+        embed_dim=8,
+        residual_connections=True,
+        agg_fn=AggregationFn.MAX,
+        num_mp_layers=1,
+        dropout=0.0,
+    )
+
+    num_nodes = graph["num_nodes"]
+    previous_hidden = mx.zeros([num_nodes, model.processor_embed_dim])
+    node_algo_features = mx.stack(
+        [
+            graph["bfs_state_targets"][0],
+            graph["bf_distance_targets"][0],
+            graph["prim_state_targets"][0],
+            graph["prim_key_targets"][0],
+        ],
+        axis=1,
+    )
+    model_input = (
+        mx.concatenate([previous_hidden, node_algo_features], axis=1),
+        graph["edge_matrix"],
+    )
+
+    bfs_output, bf_output, prim_output, termination_probs, processed = model(model_input)
+    bf_distance, bf_predecessor = bf_output
+    prim_state, prim_key, prim_predecessor = prim_output
+
+    assert bfs_output.shape == (num_nodes,)
+    assert bf_distance.shape == (num_nodes,)
+    assert bf_predecessor.shape == (num_nodes, num_nodes)
+    assert prim_state.shape == (num_nodes,)
+    assert prim_key.shape == (num_nodes,)
+    assert prim_predecessor.shape == (num_nodes, num_nodes)
+    assert set(termination_probs.keys()) == {"bf", "bfs", "prim"}
+    assert processed.shape == (num_nodes, model.processor_embed_dim)
     
     # Save another checkpoint
     manager.save(sample_model, optimizer, step=200)

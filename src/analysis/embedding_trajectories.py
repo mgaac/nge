@@ -20,6 +20,7 @@ from src.analysis.common import (
     resolve_dataset_path,
 )
 from src.data import load_dataset
+from src.utils.task_specs import ANALYSIS_LATENT_CHOICES, build_node_algo_features
 
 
 def parse_args() -> argparse.Namespace:
@@ -67,14 +68,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--latent",
         type=str,
-        choices=[
-            "processed",
-            "encoded",
-            "encoded_bfs",
-            "encoded_bf",
-            "processed_zero_bfs_input",
-            "processed_zero_bf_input",
-        ],
+        choices=ANALYSIS_LATENT_CHOICES,
         default="processed",
         help="Which latent representation to collect.",
     )
@@ -104,7 +98,7 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help=(
             "Fake-continue execution for N additional steps after algorithm "
-            "termination by reusing the final BF/BFS states as inputs."
+            "termination by reusing the final algorithm states as inputs."
         ),
     )
     parser.add_argument(
@@ -137,7 +131,8 @@ def parse_args() -> argparse.Namespace:
 def count_execution_steps(graph_data: dict, extra_steps: int) -> int:
     num_bf_steps = len(graph_data["bf_distance_targets"])
     num_bfs_steps = len(graph_data["bfs_state_targets"])
-    base_steps = max(num_bf_steps, num_bfs_steps) - 1
+    num_prim_steps = len(graph_data["prim_key_targets"])
+    base_steps = max(num_bf_steps, num_bfs_steps, num_prim_steps) - 1
     if base_steps < 0:
         base_steps = 0
     return base_steps + max(extra_steps, 0)
@@ -184,50 +179,77 @@ def collect_graph_trajectory(
     extra_steps: int,
 ) -> np.ndarray:
     num_nodes = graph_data["num_nodes"]
-    previous_step_hidden_states = mx.zeros([num_nodes, 2 * embed_dim])
+    previous_step_hidden_states = mx.zeros([num_nodes, model.processor_embed_dim])
     step_embeddings: List[np.ndarray] = []
 
-    for true_bfs_state, true_distance_bf in iter_execution_inputs(graph_data, extra_steps):
-        node_algo_features = mx.stack([true_bfs_state, true_distance_bf], axis=1)
+    for (
+        true_bfs_state,
+        true_distance_bf,
+        true_prim_state,
+        true_prim_key,
+    ) in iter_execution_inputs(graph_data, extra_steps):
+        node_algo_features = build_node_algo_features(
+            true_bfs_state,
+            true_distance_bf,
+            true_prim_state,
+            true_prim_key,
+        )
         input_embeddings = mx.concatenate(
             [previous_step_hidden_states, node_algo_features], axis=1
         )
         if latent_kind == "processed":
-            processed_embeddings, _, _, _ = compute_forward_latents(
+            processed_embeddings, _, _, _, _ = compute_forward_latents(
                 model, input_embeddings, graph_data["edge_matrix"]
             )
             latent = processed_embeddings
         elif latent_kind == "encoded":
-            processed_embeddings, encoded, _, _ = compute_forward_latents(
+            processed_embeddings, encoded, _, _, _ = compute_forward_latents(
                 model, input_embeddings, graph_data["edge_matrix"]
             )
             latent = encoded
         elif latent_kind == "encoded_bfs":
-            processed_embeddings, _, bfs_encoded, _ = compute_forward_latents(
+            processed_embeddings, _, bfs_encoded, _, _ = compute_forward_latents(
                 model, input_embeddings, graph_data["edge_matrix"]
             )
             latent = bfs_encoded
         elif latent_kind == "encoded_bf":
-            processed_embeddings, _, _, bf_encoded = compute_forward_latents(
+            processed_embeddings, _, _, bf_encoded, _ = compute_forward_latents(
                 model, input_embeddings, graph_data["edge_matrix"]
             )
             latent = bf_encoded
+        elif latent_kind == "encoded_prim":
+            processed_embeddings, _, _, _, prim_encoded = compute_forward_latents(
+                model, input_embeddings, graph_data["edge_matrix"]
+            )
+            latent = prim_encoded
         elif latent_kind == "processed_zero_bfs_input":
-            processed_embeddings, _, _, _ = compute_forward_latents(
+            processed_embeddings, _, _, _, _ = compute_forward_latents(
                 model,
                 input_embeddings,
                 graph_data["edge_matrix"],
                 zero_bfs_input=True,
                 zero_bf_input=False,
+                zero_prim_input=False,
             )
             latent = processed_embeddings
         elif latent_kind == "processed_zero_bf_input":
-            processed_embeddings, _, _, _ = compute_forward_latents(
+            processed_embeddings, _, _, _, _ = compute_forward_latents(
                 model,
                 input_embeddings,
                 graph_data["edge_matrix"],
                 zero_bfs_input=False,
                 zero_bf_input=True,
+                zero_prim_input=False,
+            )
+            latent = processed_embeddings
+        elif latent_kind == "processed_zero_prim_input":
+            processed_embeddings, _, _, _, _ = compute_forward_latents(
+                model,
+                input_embeddings,
+                graph_data["edge_matrix"],
+                zero_bfs_input=False,
+                zero_bf_input=False,
+                zero_prim_input=True,
             )
             latent = processed_embeddings
         else:
@@ -239,7 +261,7 @@ def collect_graph_trajectory(
         previous_step_hidden_states = processed_embeddings
 
     if not step_embeddings:
-        return np.empty((0, 2 * embed_dim), dtype=np.float32)
+        return np.empty((0, model.processor_embed_dim), dtype=np.float32)
 
     return np.stack(step_embeddings, axis=0)
 

@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Dict, Any
 from dataclasses import dataclass, field, asdict
 
+from src.utils.task_specs import TERMINATION_LATENT_CHOICES
+
 
 @dataclass
 class ModelConfig:
@@ -19,7 +21,7 @@ class ModelConfig:
     num_mp_layers: int = 2
     dropout: float = 0.1
     termination_mode: str = "head"  # head, distance
-    termination_distance_latent: str = "processed"  # processed, encoded, encoded_bfs, encoded_bf
+    termination_distance_latent: str = "processed"  # processed, encoded, encoded_bfs, encoded_bf, encoded_prim
     termination_distance: str = "mean_l2"  # l2, mean_l2, l1, mse
     termination_distance_threshold: float = 0.01
     termination_distance_signal: bool = True
@@ -152,15 +154,10 @@ def validate_config(config: ExperimentConfig) -> None:
     if config.model.termination_mode not in ["head", "distance"]:
         raise ValueError(f"Invalid termination_mode: {config.model.termination_mode}")
 
-    if config.model.termination_distance_latent not in [
-        "processed",
-        "encoded",
-        "encoded_bfs",
-        "encoded_bf",
-    ]:
+    if config.model.termination_distance_latent not in TERMINATION_LATENT_CHOICES:
         raise ValueError(
             "termination_distance_latent must be one of: "
-            "'processed', 'encoded', 'encoded_bfs', 'encoded_bf', "
+            "'processed', 'encoded', 'encoded_bfs', 'encoded_bf', 'encoded_prim', "
             f"got {config.model.termination_distance_latent}"
         )
 

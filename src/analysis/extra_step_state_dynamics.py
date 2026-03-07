@@ -27,6 +27,7 @@ from src.analysis.common import (
     resolve_dataset_path,
 )
 from src.data import load_dataset
+from src.utils.task_specs import build_node_algo_features
 from src.utils.termination import (
     compute_distance_termination_logits,
     get_distance_latent,
@@ -102,7 +103,8 @@ def parse_args() -> argparse.Namespace:
 def count_base_steps(graph_data: dict) -> int:
     num_bf_steps = len(graph_data["bf_distance_targets"])
     num_bfs_steps = len(graph_data["bfs_state_targets"])
-    return max(max(num_bf_steps, num_bfs_steps) - 1, 0)
+    num_prim_steps = len(graph_data["prim_key_targets"])
+    return max(max(num_bf_steps, num_bfs_steps, num_prim_steps) - 1, 0)
 
 
 def _mean_l2_per_node(a: np.ndarray, b: np.ndarray) -> float:
@@ -169,6 +171,8 @@ def plot_dynamics(
     consecutive_state_deltas: List[float],
     bfs_flip_rates: List[float],
     bf_pred_change_rates: List[float],
+    prim_flip_rates: List[float],
+    prim_pred_change_rates: List[float],
     hidden_deltas: List[float],
     base_steps: int,
     title: str,
@@ -184,21 +188,36 @@ def plot_dynamics(
     bf_distance_std = np.array(
         [entry["bf_distance_std"] for entry in per_step], dtype=np.float64
     )
+    prim_active_fraction = np.array(
+        [entry["prim_active_fraction"] for entry in per_step], dtype=np.float64
+    )
+    prim_key_mean = np.array(
+        [entry["prim_key_mean"] for entry in per_step], dtype=np.float64
+    )
+    prim_key_std = np.array(
+        [entry["prim_key_std"] for entry in per_step], dtype=np.float64
+    )
     bf_term_prob = np.array(
         [entry["bf_termination_prob"] for entry in per_step], dtype=np.float64
     )
     bfs_term_prob = np.array(
         [entry["bfs_termination_prob"] for entry in per_step], dtype=np.float64
     )
+    prim_term_prob = np.array(
+        [entry["prim_termination_prob"] for entry in per_step], dtype=np.float64
+    )
 
     trans_steps = np.arange(2, len(per_step) + 1)
 
-    fig, axes = plt.subplots(3, 1, figsize=(10, 11), sharex=True)
+    fig, axes = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
 
     ax0 = axes[0]
     ax0.plot(steps, bfs_active_fraction, marker="o", linewidth=1.5, label="BFS active frac")
     ax0.plot(steps, bf_distance_mean, marker="o", linewidth=1.5, label="BF distance mean")
     ax0.plot(steps, bf_distance_std, marker="o", linewidth=1.2, label="BF distance std")
+    ax0.plot(steps, prim_active_fraction, marker="o", linewidth=1.2, label="Prim active frac")
+    ax0.plot(steps, prim_key_mean, marker="o", linewidth=1.2, label="Prim key mean")
+    ax0.plot(steps, prim_key_std, marker="o", linewidth=1.0, label="Prim key std")
     ax0.set_ylabel("State magnitude")
     ax0.grid(alpha=0.3)
     ax0.legend(loc="best", fontsize=8)
@@ -206,6 +225,7 @@ def plot_dynamics(
     ax1 = axes[1]
     ax1.plot(steps, bf_term_prob, marker="o", linewidth=1.4, label="BF term prob")
     ax1.plot(steps, bfs_term_prob, marker="o", linewidth=1.4, label="BFS term prob")
+    ax1.plot(steps, prim_term_prob, marker="o", linewidth=1.4, label="Prim term prob")
     ax1.set_ylabel("Termination prob")
     ax1.set_ylim(-0.02, 1.02)
     ax1.grid(alpha=0.3)
@@ -227,6 +247,14 @@ def plot_dynamics(
         marker="o",
         linewidth=1.2,
         label="BF predecessor change rate",
+    )
+    ax2.plot(trans_steps, prim_flip_rates, marker="o", linewidth=1.2, label="Prim flip rate")
+    ax2.plot(
+        trans_steps,
+        prim_pred_change_rates,
+        marker="o",
+        linewidth=1.2,
+        label="Prim predecessor change rate",
     )
     ax2.set_ylabel("Change metric")
     ax2.set_xlabel("Execution step")
@@ -280,29 +308,42 @@ def main() -> None:
     termination_settings = resolve_termination_settings(config.model)
     need_aux = needs_aux_latents(termination_settings)
 
-    previous_hidden = mx.zeros([num_nodes, 2 * config.model.embed_dim])
+    previous_hidden = mx.zeros([num_nodes, model.processor_embed_dim])
     previous_distance_latent = None
 
     per_step: List[Dict[str, Any]] = []
     bfs_preds: List[np.ndarray] = []
     bf_dist_preds: List[np.ndarray] = []
     bf_pred_args: List[np.ndarray] = []
+    prim_state_preds: List[np.ndarray] = []
+    prim_key_preds: List[np.ndarray] = []
+    prim_pred_args: List[np.ndarray] = []
     hidden_states: List[np.ndarray] = []
     flat_states: List[np.ndarray] = []
 
-    for step_index, (true_bfs_state, true_distance_bf) in enumerate(
+    for step_index, (
+        true_bfs_state,
+        true_distance_bf,
+        true_prim_state,
+        true_prim_key,
+    ) in enumerate(
         iter_execution_inputs(graph_data, args.extra_steps), start=1
     ):
-        node_algo_features = mx.stack([true_bfs_state, true_distance_bf], axis=1)
+        node_algo_features = build_node_algo_features(
+            true_bfs_state,
+            true_distance_bf,
+            true_prim_state,
+            true_prim_key,
+        )
         input_embeddings = mx.concatenate([previous_hidden, node_algo_features], axis=1)
         model_input = (input_embeddings, graph_data["edge_matrix"])
 
         if need_aux:
-            bfs_output, bf_output, termination_probs, processed_embeddings, aux = model(
+            bfs_output, bf_output, prim_output, termination_probs, processed_embeddings, aux = model(
                 model_input, return_latents=True
             )
         else:
-            bfs_output, bf_output, termination_probs, processed_embeddings = model(model_input)
+            bfs_output, bf_output, prim_output, termination_probs, processed_embeddings = model(model_input)
             aux = None
 
         if termination_settings["mode"] == "distance":
@@ -317,22 +358,42 @@ def main() -> None:
             termination_logits = termination_probs
 
         bf_distance_pred, bf_pred_logits = bf_output
+        prim_state_pred_logits, prim_key_pred, prim_pred_logits = prim_output
         bfs_pred = (mx.sigmoid(bfs_output) > 0.5).astype(mx.float32)
+        prim_state_pred = (mx.sigmoid(prim_state_pred_logits) > 0.5).astype(mx.float32)
         bf_pred_arg = mx.argmax(bf_pred_logits, axis=-1)
+        prim_pred_arg = mx.argmax(prim_pred_logits, axis=-1)
 
         bfs_np = np.array(bfs_pred, copy=False).astype(np.int32, copy=False)
         bf_dist_np = np.array(bf_distance_pred, copy=False).astype(np.float64, copy=False)
         bf_pred_arg_np = np.array(bf_pred_arg, copy=False).astype(np.int32, copy=False)
+        prim_state_np = np.array(prim_state_pred, copy=False).astype(np.int32, copy=False)
+        prim_key_np = np.array(prim_key_pred, copy=False).astype(np.float64, copy=False)
+        prim_pred_arg_np = np.array(prim_pred_arg, copy=False).astype(np.int32, copy=False)
         hidden_np = np.array(processed_embeddings, copy=False).astype(np.float64, copy=False)
 
         bfs_preds.append(bfs_np)
         bf_dist_preds.append(bf_dist_np)
         bf_pred_args.append(bf_pred_arg_np)
+        prim_state_preds.append(prim_state_np)
+        prim_key_preds.append(prim_key_np)
+        prim_pred_args.append(prim_pred_arg_np)
         hidden_states.append(hidden_np)
 
         bf_arg_norm = bf_pred_arg_np.astype(np.float64) / max(num_nodes - 1, 1)
+        prim_arg_norm = prim_pred_arg_np.astype(np.float64) / max(num_nodes - 1, 1)
         flat_states.append(
-            np.concatenate([bf_dist_np, bfs_np.astype(np.float64), bf_arg_norm], axis=0)
+            np.concatenate(
+                [
+                    bf_dist_np,
+                    bfs_np.astype(np.float64),
+                    bf_arg_norm,
+                    prim_state_np.astype(np.float64),
+                    prim_key_np,
+                    prim_arg_norm,
+                ],
+                axis=0,
+            )
         )
 
         per_step.append(
@@ -342,8 +403,12 @@ def main() -> None:
                 "bfs_active_fraction": float(np.mean(bfs_np)),
                 "bf_distance_mean": float(np.mean(bf_dist_np)),
                 "bf_distance_std": float(np.std(bf_dist_np)),
+                "prim_active_fraction": float(np.mean(prim_state_np)),
+                "prim_key_mean": float(np.mean(prim_key_np)),
+                "prim_key_std": float(np.std(prim_key_np)),
                 "bf_termination_prob": float(mx.sigmoid(termination_logits["bf"]).item()),
                 "bfs_termination_prob": float(mx.sigmoid(termination_logits["bfs"]).item()),
+                "prim_termination_prob": float(mx.sigmoid(termination_logits["prim"]).item()),
                 "hidden_norm": float(np.linalg.norm(hidden_np)),
             }
         )
@@ -352,6 +417,8 @@ def main() -> None:
     consecutive_state_deltas: List[float] = []
     bfs_flip_rates: List[float] = []
     bf_pred_change_rates: List[float] = []
+    prim_flip_rates: List[float] = []
+    prim_pred_change_rates: List[float] = []
     hidden_deltas: List[float] = []
     lag2_state_deltas: List[float | None] = [None]
 
@@ -363,11 +430,15 @@ def main() -> None:
         delta_hidden = _mean_l2_per_node(hidden_states[i], hidden_states[i - 1])
         bfs_flip = float(np.mean(bfs_preds[i] != bfs_preds[i - 1]))
         bf_pred_change = float(np.mean(bf_pred_args[i] != bf_pred_args[i - 1]))
+        prim_flip = float(np.mean(prim_state_preds[i] != prim_state_preds[i - 1]))
+        prim_pred_change = float(np.mean(prim_pred_args[i] != prim_pred_args[i - 1]))
 
         consecutive_state_deltas.append(delta_state)
         hidden_deltas.append(delta_hidden)
         bfs_flip_rates.append(bfs_flip)
         bf_pred_change_rates.append(bf_pred_change)
+        prim_flip_rates.append(prim_flip)
+        prim_pred_change_rates.append(prim_pred_change)
 
         curr_is_extra = bool(per_step[i]["is_extra"])
         prev_is_extra = bool(per_step[i - 1]["is_extra"])
@@ -411,6 +482,8 @@ def main() -> None:
         consecutive_state_deltas=consecutive_state_deltas,
         bfs_flip_rates=bfs_flip_rates,
         bf_pred_change_rates=bf_pred_change_rates,
+        prim_flip_rates=prim_flip_rates,
+        prim_pred_change_rates=prim_pred_change_rates,
         hidden_deltas=hidden_deltas,
         base_steps=base_steps,
         title=title,
@@ -428,6 +501,8 @@ def main() -> None:
                 "hidden_delta_mean_l2": float(hidden_deltas[i - 1]),
                 "bfs_flip_rate": float(bfs_flip_rates[i - 1]),
                 "bf_predecessor_change_rate": float(bf_pred_change_rates[i - 1]),
+                "prim_flip_rate": float(prim_flip_rates[i - 1]),
+                "prim_predecessor_change_rate": float(prim_pred_change_rates[i - 1]),
                 "lag2_state_delta_l2": (
                     None if lag2_state_deltas[i] is None else float(lag2_state_deltas[i])
                 ),

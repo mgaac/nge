@@ -58,9 +58,14 @@ def get_distance_latent(
         if "bf_encoded" not in aux:
             raise ValueError("BF encoded latents requested but not available.")
         return aux["bf_encoded"]
+    if latent_key == "encoded_prim":
+        if "prim_encoded" not in aux:
+            raise ValueError("Prim encoded latents requested but not available.")
+        return aux["prim_encoded"]
     raise ValueError(
         "Unknown termination_distance_latent. "
-        f"Expected one of: processed, encoded, encoded_bfs, encoded_bf. Got: {latent_key}"
+        "Expected one of: processed, encoded, encoded_bfs, encoded_bf, encoded_prim. "
+        f"Got: {latent_key}"
     )
 
 
@@ -87,5 +92,6 @@ def compute_distance_termination_logits(
 ) -> Dict[str, mx.array]:
     prev_latent = init_previous_latent(prev_latent, current_latent)
     distance = compute_latent_distance(prev_latent, current_latent, settings["distance_type"])
-    threshold = mx.array(settings["distance_threshold"]) 
-    return {"bf": threshold - distance, "bfs": threshold - distance}
+    threshold = mx.array(settings["distance_threshold"])
+    logit = threshold - distance
+    return {"bf": logit, "bfs": logit, "prim": logit}

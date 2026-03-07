@@ -100,33 +100,42 @@ def load_model_from_checkpoint(
 
 def iter_execution_inputs(
     graph_data: dict, extra_steps: int
-) -> Iterable[Tuple[mx.array, mx.array]]:
+) -> Iterable[Tuple[mx.array, mx.array, mx.array, mx.array]]:
     bf_steps = graph_data["bf_distance_targets"]
     bfs_steps = graph_data["bfs_state_targets"]
+    prim_states = graph_data["prim_state_targets"]
+    prim_keys = graph_data["prim_key_targets"]
     num_bf_steps = len(bf_steps)
     num_bfs_steps = len(bfs_steps)
-    num_steps = max(num_bf_steps, num_bfs_steps)
+    num_prim_steps = len(prim_keys)
+    num_steps = max(num_bf_steps, num_bfs_steps, num_prim_steps)
 
     for i in range(num_steps):
         bf_sample_exists = (i + 1) < num_bf_steps
         bfs_sample_exists = (i + 1) < num_bfs_steps
-        if not (bf_sample_exists or bfs_sample_exists):
+        prim_sample_exists = (i + 1) < num_prim_steps
+        if not (bf_sample_exists or bfs_sample_exists or prim_sample_exists):
             continue
         true_bfs_state = bfs_steps[i] if bfs_sample_exists else bfs_steps[-1]
         true_distance_bf = bf_steps[i] if bf_sample_exists else bf_steps[-1]
-        yield true_bfs_state, true_distance_bf
+        true_prim_state = prim_states[i] if prim_sample_exists else prim_states[-1]
+        true_prim_key = prim_keys[i] if prim_sample_exists else prim_keys[-1]
+        yield true_bfs_state, true_distance_bf, true_prim_state, true_prim_key
 
     if extra_steps > 0:
         final_bfs = bfs_steps[-1]
         final_bf = bf_steps[-1]
+        final_prim_state = prim_states[-1]
+        final_prim_key = prim_keys[-1]
         for _ in range(extra_steps):
-            yield final_bfs, final_bf
+            yield final_bfs, final_bf, final_prim_state, final_prim_key
 
 
 def compute_encoded_embeddings(model: NGE, input_embeddings: mx.array) -> mx.array:
     bfs_encoded = model.bfs_encoder(input_embeddings)
     bf_encoded = model.bf_encoder(input_embeddings)
-    encoded = mx.concatenate([bfs_encoded, bf_encoded], axis=1)
+    prim_encoded = model.prim_encoder(input_embeddings)
+    encoded = mx.concatenate([bfs_encoded, bf_encoded, prim_encoded], axis=1)
     return model.ln(encoded)
 
 
@@ -136,15 +145,18 @@ def compute_forward_latents(
     edge_matrix: mx.array,
     zero_bfs_input: bool = False,
     zero_bf_input: bool = False,
-) -> Tuple[mx.array, mx.array, mx.array, mx.array]:
+    zero_prim_input: bool = False,
+) -> Tuple[mx.array, mx.array, mx.array, mx.array, mx.array]:
     bfs_input = mx.zeros_like(input_embeddings) if zero_bfs_input else input_embeddings
     bf_input = mx.zeros_like(input_embeddings) if zero_bf_input else input_embeddings
+    prim_input = mx.zeros_like(input_embeddings) if zero_prim_input else input_embeddings
 
     bfs_encoded = model.bfs_encoder(bfs_input)
     bf_encoded = model.bf_encoder(bf_input)
+    prim_encoded = model.prim_encoder(prim_input)
 
-    encoded = mx.concatenate([bfs_encoded, bf_encoded], axis=1)
+    encoded = mx.concatenate([bfs_encoded, bf_encoded, prim_encoded], axis=1)
     encoded = model.ln(encoded)
 
     processed = model.processor((encoded, edge_matrix))
-    return processed, encoded, bfs_encoded, bf_encoded
+    return processed, encoded, bfs_encoded, bf_encoded, prim_encoded

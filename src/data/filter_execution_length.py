@@ -1,4 +1,4 @@
-"""Filter dataset graphs by BF/BFS execution-length relationship.
+"""Filter dataset graphs by execution-length relationship.
 
 Example:
     python -m src.data.filter_execution_length \
@@ -26,7 +26,17 @@ def parse_args() -> argparse.Namespace:
         "--relation",
         type=str,
         default="unequal",
-        choices=["unequal", "equal", "bf_gt_bfs", "bfs_gt_bf"],
+        choices=[
+            "unequal",
+            "equal",
+            "all_equal",
+            "bf_gt_bfs",
+            "bfs_gt_bf",
+            "bf_gt_prim",
+            "prim_gt_bf",
+            "bfs_gt_prim",
+            "prim_gt_bfs",
+        ],
         help="Execution-length relation to keep.",
     )
     parser.add_argument(
@@ -55,21 +65,32 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def execution_steps(graph: dict) -> tuple[int, int]:
+def execution_steps(graph: dict) -> tuple[int, int, int]:
     bf_steps = max(len(graph["bf_distance_targets"]) - 1, 0)
     bfs_steps = max(len(graph["bfs_state_targets"]) - 1, 0)
-    return bf_steps, bfs_steps
+    prim_steps = max(len(graph["prim_key_targets"]) - 1, 0)
+    return bf_steps, bfs_steps, prim_steps
 
 
-def relation_predicate(relation: str) -> Callable[[int, int], bool]:
+def relation_predicate(relation: str) -> Callable[[int, int, int], bool]:
     if relation == "unequal":
-        return lambda bf, bfs: bf != bfs
+        return lambda bf, bfs, prim: not (bf == bfs == prim)
     if relation == "equal":
-        return lambda bf, bfs: bf == bfs
+        return lambda bf, bfs, prim: bf == bfs
+    if relation == "all_equal":
+        return lambda bf, bfs, prim: bf == bfs == prim
     if relation == "bf_gt_bfs":
-        return lambda bf, bfs: bf > bfs
+        return lambda bf, bfs, prim: bf > bfs
     if relation == "bfs_gt_bf":
-        return lambda bf, bfs: bfs > bf
+        return lambda bf, bfs, prim: bfs > bf
+    if relation == "bf_gt_prim":
+        return lambda bf, bfs, prim: bf > prim
+    if relation == "prim_gt_bf":
+        return lambda bf, bfs, prim: prim > bf
+    if relation == "bfs_gt_prim":
+        return lambda bf, bfs, prim: bfs > prim
+    if relation == "prim_gt_bfs":
+        return lambda bf, bfs, prim: prim > bfs
     raise ValueError(f"Unknown relation: {relation}")
 
 
@@ -77,24 +98,42 @@ def summarize(dataset: list[dict]) -> dict:
     same = 0
     bf_gt = 0
     bfs_gt = 0
+    bf_gt_prim = 0
+    prim_gt_bf = 0
+    bfs_gt_prim = 0
+    prim_gt_bfs = 0
     bf_steps: list[int] = []
     bfs_steps: list[int] = []
+    prim_steps: list[int] = []
     for graph in dataset:
-        bf, bfs = execution_steps(graph)
+        bf, bfs, prim = execution_steps(graph)
         bf_steps.append(bf)
         bfs_steps.append(bfs)
-        if bf == bfs:
+        prim_steps.append(prim)
+        if bf == bfs == prim:
             same += 1
-        elif bf > bfs:
+        if bf > bfs:
             bf_gt += 1
-        else:
+        elif bfs > bf:
             bfs_gt += 1
+        if bf > prim:
+            bf_gt_prim += 1
+        elif prim > bf:
+            prim_gt_bf += 1
+        if bfs > prim:
+            bfs_gt_prim += 1
+        elif prim > bfs:
+            prim_gt_bfs += 1
     return {
         "num_graphs": len(dataset),
         "length_relation_counts": {
-            "equal": same,
+            "all_equal": same,
             "bf_gt_bfs": bf_gt,
             "bfs_gt_bf": bfs_gt,
+            "bf_gt_prim": bf_gt_prim,
+            "prim_gt_bf": prim_gt_bf,
+            "bfs_gt_prim": bfs_gt_prim,
+            "prim_gt_bfs": prim_gt_bfs,
         },
         "bf_steps": {
             "min": int(min(bf_steps)) if bf_steps else None,
@@ -105,6 +144,11 @@ def summarize(dataset: list[dict]) -> dict:
             "min": int(min(bfs_steps)) if bfs_steps else None,
             "max": int(max(bfs_steps)) if bfs_steps else None,
             "mean": float(np.mean(np.array(bfs_steps))) if bfs_steps else None,
+        },
+        "prim_steps": {
+            "min": int(min(prim_steps)) if prim_steps else None,
+            "max": int(max(prim_steps)) if prim_steps else None,
+            "mean": float(np.mean(np.array(prim_steps))) if prim_steps else None,
         },
     }
 
@@ -122,6 +166,9 @@ def load_dataset_numpy(path: Path) -> list[dict]:
                 "bf_distance_targets": loaded[f"bf_distance_targets_{i}"],
                 "bf_predecessor_targets": loaded[f"bf_predecessor_targets_{i}"],
                 "bfs_state_targets": loaded[f"bfs_state_targets_{i}"],
+                "prim_state_targets": loaded[f"prim_state_targets_{i}"],
+                "prim_key_targets": loaded[f"prim_key_targets_{i}"],
+                "prim_predecessor_targets": loaded[f"prim_predecessor_targets_{i}"],
             }
         )
     return dataset
@@ -136,6 +183,11 @@ def save_dataset_numpy(dataset: list[dict], path: Path) -> None:
         save_dict[f"bf_distance_targets_{i}"] = np.array(graph["bf_distance_targets"])
         save_dict[f"bf_predecessor_targets_{i}"] = np.array(graph["bf_predecessor_targets"])
         save_dict[f"bfs_state_targets_{i}"] = np.array(graph["bfs_state_targets"])
+        save_dict[f"prim_state_targets_{i}"] = np.array(graph["prim_state_targets"])
+        save_dict[f"prim_key_targets_{i}"] = np.array(graph["prim_key_targets"])
+        save_dict[f"prim_predecessor_targets_{i}"] = np.array(
+            graph["prim_predecessor_targets"]
+        )
     np.savez_compressed(path, **save_dict)
 
 
@@ -158,8 +210,8 @@ def main() -> None:
     filtered = []
     selected_indices: list[int] = []
     for idx, graph in enumerate(dataset):
-        bf_steps, bfs_steps = execution_steps(graph)
-        if predicate(bf_steps, bfs_steps):
+        bf_steps, bfs_steps, prim_steps = execution_steps(graph)
+        if predicate(bf_steps, bfs_steps, prim_steps):
             filtered.append(graph)
             selected_indices.append(idx)
 
@@ -196,7 +248,7 @@ def main() -> None:
     print(f"Saved summary to: {summary_path}")
     print(
         "Filtered counts: "
-        f"equal={filtered_summary['length_relation_counts']['equal']}, "
+        f"all_equal={filtered_summary['length_relation_counts']['all_equal']}, "
         f"bf_gt_bfs={filtered_summary['length_relation_counts']['bf_gt_bfs']}, "
         f"bfs_gt_bf={filtered_summary['length_relation_counts']['bfs_gt_bf']}"
     )

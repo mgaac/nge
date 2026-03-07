@@ -1,17 +1,17 @@
 # NGE (Neural Graph Execution)
 
 NGE is an MLX research codebase for learning algorithm execution on graphs.  
-It trains a message-passing model to predict Bellman-Ford (distance + predecessor) and BFS (reachability) state transitions, plus task termination signals.
+It trains a message-passing model to predict Bellman-Ford (distance + predecessor), BFS (reachability), and Prim (in-tree state + key + predecessor) state transitions, plus task termination signals.
 
 ## Capability overview
 
 | Area | What is implemented |
 | --- | --- |
-| Data | Synthetic Erdos-Renyi + Barabasi-Albert graphs, bidirectional edges, self-loops, weighted edges, `.npz` serialization |
-| Model | Shared encoder/processor architecture with BF/BFS heads and configurable aggregation (`SUM/AVG/MIN/MAX`) |
+| Data | Synthetic Erdos-Renyi + Barabasi-Albert graphs, bidirectional edges, self-loops, weighted edges, BF/BFS/Prim supervision, `.npz` serialization |
+| Model | Shared encoder/processor architecture with BF/BFS/Prim heads and configurable aggregation (`SUM/AVG/MIN/MAX`) |
 | Training | Config-driven runs, checkpointing, resume, JSONL metrics, optional W&B logging |
 | Evaluation | Loss/accuracy reporting, eval-only mode, failure-mode analysis and debug traces |
-| Analysis | Latent convergence, embedding trajectories + PCA, execution-length overlays, threshold sweeps, dataset step distributions |
+| Analysis | Latent convergence, embedding trajectories + PCA, execution-length overlays, threshold sweeps, dataset step distributions, extra-step dynamics |
 | Reproducibility | Seed control, run metadata (`meta.json`), resolved config snapshots |
 
 ## Repository layout
@@ -44,7 +44,7 @@ Generates `train/val/test` splits (`1500/100/100`, 20 nodes) into `data/`:
 conda run -n mlx python -m src.data.dataset --preset --output-dir data
 ```
 
-### 2. Optional: filter by BF/BFS execution-length relation
+### 2. Optional: filter by execution-length relation
 
 ```bash
 conda run -n mlx python -m src.data.filter_execution_length \
@@ -52,6 +52,8 @@ conda run -n mlx python -m src.data.filter_execution_length \
   --output data/train_dataset_unequal_exec.npz \
   --relation unequal
 ```
+
+The filter utility remains BF/BFS-compatible and also exposes Prim-aware relations such as `bf_gt_prim`, `prim_gt_bf`, `bfs_gt_prim`, `prim_gt_bfs`, and `all_equal`.
 
 ### 3. Train
 
@@ -94,7 +96,7 @@ model:
   num_mp_layers: <int>
   dropout: <float>
   termination_mode: <head|distance>
-  termination_distance_latent: <processed|encoded|encoded_bfs|encoded_bf>
+  termination_distance_latent: <processed|encoded|encoded_bfs|encoded_bf|encoded_prim>
   termination_distance: <l2|mean_l2|l1|mse>
   termination_distance_threshold: <float>
   termination_distance_signal: <bool>
@@ -125,7 +127,7 @@ logging:
 | `--config` | Path to YAML config |
 | `--resume` | Resume latest run |
 | `--run-dir` | Explicit run directory (resume/eval) |
-| `--tasks {all,bf,bfs}` | Select optimized/evaluated tasks |
+| `--tasks {all,bf,bfs,prim}` | Select optimized/evaluated tasks |
 | `--eval-only` | Skip training and only evaluate |
 | `--checkpoint` | Explicit checkpoint file/dir for eval |
 | `--accuracies-only` | Eval-only: skip losses |
@@ -141,9 +143,9 @@ logging:
 | `src.analysis.latent_convergence` | Distance-to-final / successive latent change plots + JSON |
 | `src.analysis.embedding_trajectories` | Trajectories + step/trajectory PCA artifacts |
 | `src.analysis.execution_length_step_overlay` | Overlayed average trajectories across execution lengths |
-| `src.analysis.extra_step_state_dynamics` | Fake-continuation dynamics and stabilization diagnostics |
-| `src.analysis.dataset_step_distribution` | BF/BFS step distribution plots + summary JSON |
-| `src.analysis.termination_threshold_sweep` | Threshold vs termination-accuracy curves |
+| `src.analysis.extra_step_state_dynamics` | Fake-continuation dynamics and stabilization diagnostics across BF/BFS/Prim states |
+| `src.analysis.dataset_step_distribution` | BF/BFS/Prim step distribution plots + summary JSON |
+| `src.analysis.termination_threshold_sweep` | Threshold vs BF/BFS/Prim termination-accuracy curves |
 
 Example:
 
@@ -162,6 +164,17 @@ Each training run creates `runs/<run_name>/` with:
 - `checkpoints/`
 - `analysis/` (if analysis/eval modes are enabled)
 
+## Dataset Schema
+
+Each graph record stores:
+
+- `edge_matrix`, `num_nodes`, `source_node`
+- `bf_distance_targets`, `bf_predecessor_targets`
+- `bfs_state_targets`
+- `prim_state_targets`, `prim_key_targets`, `prim_predecessor_targets`
+
+The recurrent model input is the concatenation of the previous hidden state with the per-node algorithm state vector `[bfs_state, bf_distance, prim_state, prim_key]`.
+
 ## Quality checks
 
 ```bash
@@ -169,4 +182,4 @@ conda run -n mlx python -m compileall -q src tests
 conda run -n mlx python -m pytest -q
 ```
 
-If `pytest` is unavailable in your environment, install dependencies from `requirements.txt` first.
+If `pytest` is unavailable in your environment, install dependencies from `requirements.txt` first. MLX runtime checks require a working MLX environment on supported hardware.
