@@ -9,7 +9,7 @@ It trains a message-passing model to predict Bellman-Ford (distance + predecesso
 | --- | --- |
 | Data | Synthetic Erdos-Renyi + Barabasi-Albert graphs, bidirectional edges, self-loops, weighted edges, BF/BFS/Prim supervision, `.npz` serialization |
 | Model | Shared encoder/processor architecture with BF/BFS/Prim heads and configurable aggregation (`SUM/AVG/MIN/MAX`) |
-| Training | Config-driven runs, checkpointing, resume, JSONL metrics, optional W&B logging |
+| Training | Config-driven runs, checkpointing, resume, JSONL metrics, optional W&B logging, explicit `mx.eval(...)` barriers for stable MLX gradient accumulation |
 | Evaluation | Loss/accuracy reporting, eval-only mode, failure-mode analysis and debug traces |
 | Analysis | Latent convergence, embedding trajectories + PCA, execution-length overlays, threshold sweeps, dataset step distributions, extra-step dynamics |
 | Reproducibility | Seed control, run metadata (`meta.json`), resolved config snapshots |
@@ -163,6 +163,8 @@ Each training run creates `runs/<run_name>/` with:
 - `metrics.jsonl`
 - `checkpoints/`
 - `analysis/` (if analysis/eval modes are enabled)
+
+When W&B is enabled, metrics are logged under split namespaces such as `train/*`, `val/*`, `train_eval/*`, and `test/*`, all indexed by the explicit `epoch` metric.
 
 ## Dataset Schema
 

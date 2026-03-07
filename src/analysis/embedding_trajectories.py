@@ -585,6 +585,8 @@ def main() -> None:
     args = parse_args()
     if args.extra_steps < 0:
         raise ValueError("--extra-steps must be non-negative.")
+    if args.pca_components <= 0:
+        raise ValueError("--pca-components must be positive.")
     config, run_dir = resolve_config(args.config, args.run_dir)
 
     dataset_path = resolve_dataset_path(args.dataset, args.split, config)

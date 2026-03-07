@@ -51,6 +51,7 @@ class MetricsLogger:
         
         self.use_wandb = use_wandb and WANDB_AVAILABLE
         self.wandb_run = None
+        self.wandb_step_metric = "epoch"
         
         if self.use_wandb:
             if not WANDB_AVAILABLE:
@@ -64,6 +65,12 @@ class MetricsLogger:
                     entity=wandb_entity,
                     config=wandb_config,
                 )
+                self.wandb_run.define_metric(self.wandb_step_metric)
+                for split_name in ("train", "val", "train_eval", "test"):
+                    self.wandb_run.define_metric(
+                        f"{split_name}/*",
+                        step_metric=self.wandb_step_metric,
+                    )
     
     def log(self, step: int, metrics: Dict[str, Any], split: str = "train") -> None:
         """Log metrics for a given step.
@@ -89,19 +96,15 @@ class MetricsLogger:
         
         # Log to W&B if enabled
         if self.use_wandb and self.wandb_run is not None:
-            # Flatten metrics with split prefix for W&B
-            wandb_metrics = {}
+            wandb_metrics = {self.wandb_step_metric: step}
             for key, value in metrics.items():
                 # Convert to Python scalar if needed
                 if hasattr(value, 'item'):
                     value = value.item()
-                
-                if split == "train":
-                    wandb_metrics[key] = value
-                else:
-                    wandb_metrics[f"{split}_{key}"] = value
-            
-            wandb.log(wandb_metrics, step=step)
+
+                wandb_metrics[f"{split}/{key}"] = value
+
+            self.wandb_run.log(wandb_metrics)
     
     def log_summary(self, summary: Dict[str, Any]) -> None:
         """Log summary metrics (e.g., final test results).

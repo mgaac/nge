@@ -194,10 +194,16 @@ class EdgePointerHead(nn.Module):
         )
         pointer_input = self.pointer_ln(pointer_input)
 
-        edge_logits = self.pointer_head(pointer_input).squeeze()
+        edge_logits = self.pointer_head(pointer_input).reshape(-1)
 
-        predecessor_predictions = mx.full([num_nodes, num_nodes], -1e6)
-        predecessor_predictions[target_idx, source_idx] = edge_logits
+        # MLX documents dedicated put/scatter ops for indexed writes. Flattening the
+        # destination avoids the expensive advanced multi-index assignment path.
+        predecessor_predictions = mx.put_along_axis(
+            mx.full([num_nodes * num_nodes], -1e6),
+            target_idx * num_nodes + source_idx,
+            edge_logits,
+            axis=None,
+        ).reshape(num_nodes, num_nodes)
         return predecessor_predictions
 
 

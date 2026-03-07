@@ -154,6 +154,17 @@ def parse_graph_indices(indices_arg: str | None) -> list[int]:
     return sorted(set(indices))
 
 
+def _eval_trees(*trees):
+    """Force evaluation of MLX arrays nested inside pytrees."""
+    leaves = []
+    for tree in trees:
+        if tree is None:
+            continue
+        leaves.extend(value for _, value in utils.tree_flatten(tree))
+    if leaves:
+        mx.eval(*leaves)
+
+
 def setup_run_directory(config: ExperimentConfig, resume: bool = False, run_dir: str = None) -> Path:
     """Setup or resume run directory with all required artifacts.
     
@@ -616,6 +627,7 @@ def train_epoch(
         )
         
         per_head_magnitude_grads = extract_per_head_magnitude_grads(grads)
+        _eval_trees(loss, aux_losses, grads, per_head_magnitude_grads)
         
         # Accumulate per-head gradients
         for head_name, grad_value in per_head_magnitude_grads.items():
@@ -630,6 +642,16 @@ def train_epoch(
         else:
             acc_batch_grads = utils.tree_map(lambda a, b: a + b, acc_batch_grads, grads)
         bucket_count += 1
+
+        # Keep the lazy graph bounded while preserving gradient accumulation.
+        accumulated_epoch_loss += loss
+        accumulated_aux_losses += aux_losses
+        _eval_trees(
+            acc_batch_grads,
+            accumulated_epoch_loss,
+            accumulated_aux_losses,
+            accumulated_per_head_grads,
+        )
         
         end_of_bucket = (bucket_count == batch_size)
         end_of_epoch  = (idx_in_epoch + 1 == len(permutation))
@@ -647,10 +669,6 @@ def train_epoch(
             # Reset for next bucket
             acc_batch_grads = None
             bucket_count = 0
-        
-        # Book-keeping
-        accumulated_epoch_loss += loss
-        accumulated_aux_losses += aux_losses
     
     avg_epoch_loss = accumulated_epoch_loss / len(dataset)
     avg_aux_losses = accumulated_aux_losses / len(dataset)
