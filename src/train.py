@@ -1120,9 +1120,11 @@ def main():
             metadata={'epoch': config.training.epochs, 'final': True}
         )
 
-    # Cleanup old checkpoints (keep last 5)
+    # Cleanup old checkpoints according to retention policy.
     if config.logging.save_checkpoints:
-        checkpoint_manager.cleanup_old_checkpoints(keep_last_n=5)
+        checkpoint_manager.cleanup_old_checkpoints(
+            keep_last_n=config.logging.checkpoint_keep_last
+        )
 
     logger.finish()
     print("\n" + "=" * 80)

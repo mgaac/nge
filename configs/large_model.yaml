@@ -29,3 +29,4 @@ logging:
   log_interval: 1
   save_checkpoints: true
   checkpoint_interval: 100
+  checkpoint_keep_last: 5

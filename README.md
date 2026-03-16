@@ -55,19 +55,30 @@ conda run -n mlx python -m src.data.filter_execution_length \
 
 The filter utility remains BF/BFS-compatible and also exposes Prim-aware relations such as `bf_gt_prim`, `prim_gt_bf`, `bfs_gt_prim`, `prim_gt_bfs`, and `all_equal`.
 
-### 3. Train
+### 3. Optional: create isolated-execution datasets
+
+This creates counterfactual variants where one algorithm evolves normally while the others are frozen at their initial target state. `balanced` emits BF-only, BFS-only, and Prim-only variants for each source graph.
+
+```bash
+conda run -n mlx python -m src.data.isolation_dataset \
+  --input data/val_dataset.npz \
+  --output data/val_dataset_isolated_exec.npz \
+  --mode balanced
+```
+
+### 4. Train
 
 ```bash
 conda run -n mlx python -m src.train --config configs/baseline.yaml
 ```
 
-### 4. Resume latest run
+### 5. Resume latest run
 
 ```bash
 conda run -n mlx python -m src.train --config configs/baseline.yaml --resume
 ```
 
-### 5. Eval-only
+### 6. Eval-only
 
 ```bash
 conda run -n mlx python -m src.train \
@@ -118,6 +129,7 @@ logging:
   log_interval: <int>
   save_checkpoints: <bool>
   checkpoint_interval: <int>
+  checkpoint_keep_last: <int>
 ```
 
 ## Training CLI (`src.train`)
@@ -142,9 +154,11 @@ logging:
 | --- | --- |
 | `src.analysis.latent_convergence` | Distance-to-final / successive latent change plots + JSON |
 | `src.analysis.embedding_trajectories` | Trajectories + step/trajectory PCA artifacts |
+| `src.analysis.algorithm_subspace` | Algorithm-specific latent-delta subspace overlap / explained-variance analysis |
 | `src.analysis.execution_length_step_overlay` | Overlayed average trajectories across execution lengths |
 | `src.analysis.extra_step_state_dynamics` | Fake-continuation dynamics and stabilization diagnostics across BF/BFS/Prim states |
 | `src.analysis.dataset_step_distribution` | BF/BFS/Prim step distribution plots + summary JSON |
+| `src.analysis.pc_monotonicity` | Spearman/monotonicity checks between sequential latent distances and PCA coordinates near task termination |
 | `src.analysis.termination_threshold_sweep` | Threshold vs BF/BFS/Prim termination-accuracy curves |
 
 Example:
@@ -153,6 +167,11 @@ Example:
 conda run -n mlx python -m src.analysis.dataset_step_distribution \
   --dataset data/test_dataset.npz
 ```
+
+`src.analysis.embedding_trajectories` supports `--pca-components 2` and `--pca-components 3`; when plotting is enabled, three components produce a 3D PCA figure plus pairwise perspective views for `PC1-PC2`, `PC1-PC3`, and `PC2-PC3`. Step-wise PCA plots also overlay BF→BFS and BF→Prim reference segments built from the mean algorithm termination steps of the selected graphs.
+`src.analysis.embedding_trajectories` also supports `--execution-window {all,bf,bfs,prim}` to truncate the analyzed trajectory prefix to the steps where a specific algorithm is still executing. For example, `--execution-window bfs` drops the post-BFS tail where only BF or Prim continue to evolve.
+`src.analysis.algorithm_subspace` consumes an existing `embedding_trajectories` artifact, converts trajectories into per-step latent deltas, partitions those deltas by algorithm-active or algorithm-exclusive execution phases, and compares the resulting PCA subspaces via mean canonical correlations and cross explained-variance heatmaps.
+`src.analysis.pc_monotonicity` tests hypotheses of the form "sequential latent-change magnitudes are monotonic with respect to PCk near task termination" and writes per-task scatter plots plus a Spearman heatmap.
 
 ## Outputs per run
 
@@ -165,6 +184,7 @@ Each training run creates `runs/<run_name>/` with:
 - `analysis/` (if analysis/eval modes are enabled)
 
 When W&B is enabled, metrics are logged under split namespaces such as `train/*`, `val/*`, `train_eval/*`, and `test/*`, all indexed by the explicit `epoch` metric.
+Checkpoint retention is controlled by `logging.checkpoint_keep_last`; after training, older checkpoints are pruned and only the most recent `N` are kept.
 
 ## Dataset Schema
 

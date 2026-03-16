@@ -55,6 +55,7 @@ class LoggingConfig:
     log_interval: int = 1
     save_checkpoints: bool = True
     checkpoint_interval: int = 50
+    checkpoint_keep_last: int = 5
 
 
 @dataclass
@@ -188,6 +189,20 @@ def validate_config(config: ExperimentConfig) -> None:
     
     if config.training.batch_size <= 0:
         raise ValueError(f"batch_size must be positive, got {config.training.batch_size}")
+
+    if config.logging.log_interval <= 0:
+        raise ValueError(f"log_interval must be positive, got {config.logging.log_interval}")
+
+    if config.logging.checkpoint_interval <= 0:
+        raise ValueError(
+            f"checkpoint_interval must be positive, got {config.logging.checkpoint_interval}"
+        )
+
+    if config.logging.checkpoint_keep_last <= 0:
+        raise ValueError(
+            "checkpoint_keep_last must be positive, "
+            f"got {config.logging.checkpoint_keep_last}"
+        )
     
     # Validate data paths exist
     for path_name, path in [

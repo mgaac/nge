@@ -20,7 +20,12 @@ from src.analysis.common import (
     resolve_dataset_path,
 )
 from src.data import load_dataset
-from src.utils.task_specs import ANALYSIS_LATENT_CHOICES, build_node_algo_features
+from src.utils.task_specs import (
+    ALGORITHMS,
+    ANALYSIS_LATENT_CHOICES,
+    build_node_algo_features,
+    execution_step_counts,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -102,6 +107,17 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--execution-window",
+        type=str,
+        choices=["all", *ALGORITHMS],
+        default="all",
+        help=(
+            "Restrict plotted/PCA trajectory steps to the prefix where the selected "
+            "algorithm is still executing. For example, --execution-window bfs keeps "
+            "only steps < max_bfs_execution_steps across the selected graphs."
+        ),
+    )
+    parser.add_argument(
         "--pca",
         type=str,
         choices=["none", "step", "trajectory", "both"],
@@ -158,6 +174,28 @@ def choose_step_count(step_counts: List[int], policy: str, fixed_steps: int | No
         return max(candidates)
 
     raise ValueError(f"Unknown step policy: {policy}")
+
+
+def execution_window_steps(selected_graphs: List[dict], execution_window: str) -> int | None:
+    if execution_window == "all":
+        return None
+
+    active_steps = [execution_step_counts(graph)[execution_window] for graph in selected_graphs]
+    if not active_steps:
+        return None
+
+    max_active_steps = int(max(active_steps))
+    if max_active_steps <= 0:
+        raise ValueError(
+            f"No executable steps found for execution window '{execution_window}'."
+        )
+    return max_active_steps
+
+
+def execution_window_label(execution_window: str) -> str | None:
+    if execution_window == "all":
+        return None
+    return f"{execution_window.upper()}-active"
 
 
 def aggregate_nodes(latent: np.ndarray, node_agg: str) -> np.ndarray:
@@ -337,7 +375,47 @@ def step_pca_mean_coordinates(
     return means
 
 
+def algorithm_reference_chain(
+    projected: np.ndarray,
+    step_indices: np.ndarray,
+    selected_graphs: List[dict],
+    num_steps: int,
+) -> List[dict]:
+    references: List[dict] = []
+    if projected.ndim != 2:
+        raise ValueError("Projected PCA coordinates must be a 2D array.")
+
+    for algorithm in ALGORITHMS:
+        end_steps = [
+            float(execution_step_counts(graph)[algorithm]) for graph in selected_graphs
+        ]
+        if not end_steps:
+            continue
+        mean_end_step = float(np.mean(np.array(end_steps, dtype=np.float64)))
+        rounded_step = int(np.rint(mean_end_step))
+        if rounded_step < 0 or rounded_step >= num_steps:
+            continue
+        mask = step_indices == rounded_step
+        if not np.any(mask):
+            continue
+        mean_coord = projected[mask].mean(axis=0)
+        references.append(
+            {
+                "algorithm": algorithm,
+                "mean_end_step": mean_end_step,
+                "reference_step": rounded_step,
+                "mean_coordinate": mean_coord.astype(np.float64, copy=False).tolist(),
+            }
+        )
+    return references
+
+
 def _format_title_with_variance(title: str, explained_ratio: np.ndarray) -> str:
+    if explained_ratio.size >= 3:
+        pc1 = explained_ratio[0] * 100.0
+        pc2 = explained_ratio[1] * 100.0
+        pc3 = explained_ratio[2] * 100.0
+        return f"{title} (PC1 {pc1:.1f}%, PC2 {pc2:.1f}%, PC3 {pc3:.1f}%)"
     if explained_ratio.size >= 2:
         pc1 = explained_ratio[0] * 100.0
         pc2 = explained_ratio[1] * 100.0
@@ -362,6 +440,49 @@ def _build_discrete_color_map(labels: np.ndarray) -> tuple[np.ndarray, dict[int,
     return unique_labels, color_map
 
 
+def _plot_dimensions(points: np.ndarray) -> int:
+    if points.ndim != 2:
+        raise ValueError("Plotting expects a 2D array of projected points.")
+    if points.shape[1] >= 3:
+        return 3
+    if points.shape[1] >= 2:
+        return 2
+    raise ValueError("Need at least 2 PCA components to plot trajectories.")
+
+
+def _axis_labels(num_components: int) -> tuple[str, ...]:
+    if num_components == 3:
+        return ("PC1", "PC2", "PC3")
+    return ("PC1", "PC2")
+
+
+def _pairwise_component_views(num_components: int) -> list[tuple[int, int]]:
+    if num_components < 3:
+        return []
+    return [(0, 1), (0, 2), (1, 2)]
+
+
+def _component_view_suffix(axes: tuple[int, int]) -> str:
+    return f"_pc{axes[0] + 1}{axes[1] + 1}"
+
+
+def _reference_segments(
+    algorithm_reference_points: List[dict] | None,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    if not algorithm_reference_points:
+        return []
+    point_map = {
+        entry["algorithm"]: np.array(entry["mean_coordinate"], dtype=np.float64)
+        for entry in algorithm_reference_points
+    }
+    segments: list[tuple[np.ndarray, np.ndarray]] = []
+    if "bf" in point_map and "bfs" in point_map:
+        segments.append((point_map["bf"], point_map["bfs"]))
+    if "bf" in point_map and "prim" in point_map:
+        segments.append((point_map["bf"], point_map["prim"]))
+    return segments
+
+
 def plot_trajectory_scatter(
     points: np.ndarray,
     graph_labels: np.ndarray,
@@ -375,13 +496,115 @@ def plot_trajectory_scatter(
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
 
+    num_components = _plot_dimensions(points)
+    unique_graphs = np.unique(graph_labels)
+    norm = plt.Normalize(vmin=float(unique_graphs.min()), vmax=float(unique_graphs.max()))
+    cmap = matplotlib.colormaps["viridis"]
+    fig = plt.figure(figsize=(7, 6) if num_components == 3 else (6, 5))
+    if num_components == 3:
+        ax = fig.add_subplot(111, projection="3d")
+        scatter = ax.scatter(
+            points[:, 0],
+            points[:, 1],
+            points[:, 2],
+            c=graph_labels,
+            cmap=cmap,
+            norm=norm,
+            s=30,
+            alpha=0.9,
+            linewidths=0.2,
+            edgecolors="black",
+        )
+    else:
+        ax = fig.add_subplot(111)
+        scatter = ax.scatter(
+            points[:, 0],
+            points[:, 1],
+            c=graph_labels,
+            cmap=cmap,
+            norm=norm,
+            s=30,
+            alpha=0.9,
+            linewidths=0.2,
+            edgecolors="black",
+        )
+    cbar = fig.colorbar(scatter, ax=ax, label="graph index")
+    cbar.ax.tick_params(labelsize=8)
+
+    mid_graph = unique_graphs[len(unique_graphs) // 2]
+    legend_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="none",
+            markerfacecolor=cmap(norm(float(unique_graphs[0]))),
+            markeredgecolor="black",
+            markeredgewidth=0.2,
+            markersize=6,
+            label=f"graph {int(unique_graphs[0])}",
+        ),
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="none",
+            markerfacecolor=cmap(norm(float(mid_graph))),
+            markeredgecolor="black",
+            markeredgewidth=0.2,
+            markersize=6,
+            label=f"graph {int(mid_graph)}",
+        ),
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="none",
+            markerfacecolor=cmap(norm(float(unique_graphs[-1]))),
+            markeredgecolor="black",
+            markeredgewidth=0.2,
+            markersize=6,
+            label=f"graph {int(unique_graphs[-1])}",
+        ),
+    ]
+    ax.legend(handles=legend_handles, title="Gradient anchors", loc="best", fontsize=8)
+
+    labels = _axis_labels(num_components)
+    ax.set_xlabel(labels[0])
+    ax.set_ylabel(labels[1])
+    if num_components == 3:
+        ax.set_zlabel(labels[2])
+    ax.set_title(_format_title_with_variance(title, explained_ratio))
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_trajectory_scatter_pairwise(
+    points: np.ndarray,
+    graph_labels: np.ndarray,
+    output_path: Path,
+    title: str,
+    explained_ratio: np.ndarray,
+    axes: tuple[int, int],
+) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
+    if points.ndim != 2 or points.shape[1] <= max(axes):
+        raise ValueError("Pairwise trajectory plotting requires the requested PCA axes.")
+
     unique_graphs = np.unique(graph_labels)
     norm = plt.Normalize(vmin=float(unique_graphs.min()), vmax=float(unique_graphs.max()))
     cmap = matplotlib.colormaps["viridis"]
     fig, ax = plt.subplots(figsize=(6, 5))
     scatter = ax.scatter(
-        points[:, 0],
-        points[:, 1],
+        points[:, axes[0]],
+        points[:, axes[1]],
         c=graph_labels,
         cmap=cmap,
         norm=norm,
@@ -431,8 +654,8 @@ def plot_trajectory_scatter(
     ]
     ax.legend(handles=legend_handles, title="Gradient anchors", loc="best", fontsize=8)
 
-    ax.set_xlabel("PC1")
-    ax.set_ylabel("PC2")
+    ax.set_xlabel(f"PC{axes[0] + 1}")
+    ax.set_ylabel(f"PC{axes[1] + 1}")
     ax.set_title(_format_title_with_variance(title, explained_ratio))
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -449,6 +672,7 @@ def plot_step_trajectories(
     explained_ratio: np.ndarray,
     completion_probe_points: np.ndarray | None = None,
     completion_probe_mean: np.ndarray | None = None,
+    algorithm_reference_points: List[dict] | None = None,
 ) -> None:
     import matplotlib
 
@@ -456,9 +680,14 @@ def plot_step_trajectories(
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
 
+    num_components = _plot_dimensions(points)
     unique_steps, step_color_map = _build_discrete_color_map(step_indices)
 
-    fig, ax = plt.subplots(figsize=(7, 6))
+    fig = plt.figure(figsize=(8, 7) if num_components == 3 else (7, 6))
+    if num_components == 3:
+        ax = fig.add_subplot(111, projection="3d")
+    else:
+        ax = fig.add_subplot(111)
     for graph_label in np.unique(graph_labels):
         graph_mask = graph_labels == graph_label
         graph_points = points[graph_mask]
@@ -468,50 +697,190 @@ def plot_step_trajectories(
         graph_steps = graph_steps[order]
 
         # Keep trajectory lines subtle so step colors remain visually dominant.
-        ax.plot(
-            graph_points[:, 0],
-            graph_points[:, 1],
-            color="#5f6368",
-            linewidth=0.45,
-            alpha=0.14,
-            zorder=1,
-        )
+        if num_components == 3:
+            ax.plot(
+                graph_points[:, 0],
+                graph_points[:, 1],
+                graph_points[:, 2],
+                color="#5f6368",
+                linewidth=0.45,
+                alpha=0.14,
+                zorder=1,
+            )
+        else:
+            ax.plot(
+                graph_points[:, 0],
+                graph_points[:, 1],
+                color="#5f6368",
+                linewidth=0.45,
+                alpha=0.14,
+                zorder=1,
+            )
         point_colors = np.array([step_color_map[int(step)] for step in graph_steps])
-        ax.scatter(
-            graph_points[:, 0],
-            graph_points[:, 1],
-            c=point_colors,
-            s=22,
-            alpha=0.9,
-            linewidths=0.2,
-            edgecolors="black",
-            zorder=2,
-        )
+        if num_components == 3:
+            ax.scatter(
+                graph_points[:, 0],
+                graph_points[:, 1],
+                graph_points[:, 2],
+                c=point_colors,
+                s=22,
+                alpha=0.9,
+                linewidths=0.2,
+                edgecolors="black",
+                zorder=2,
+            )
+        else:
+            ax.scatter(
+                graph_points[:, 0],
+                graph_points[:, 1],
+                c=point_colors,
+                s=22,
+                alpha=0.9,
+                linewidths=0.2,
+                edgecolors="black",
+                zorder=2,
+            )
 
     if completion_probe_points is not None and completion_probe_points.size > 0:
-        ax.scatter(
-            completion_probe_points[:, 0],
-            completion_probe_points[:, 1],
-            marker="X",
-            s=46,
-            color="#d62728",
-            alpha=0.8,
-            linewidths=0.4,
-            edgecolors="black",
-            zorder=3,
+        if num_components == 3:
+            ax.scatter(
+                completion_probe_points[:, 0],
+                completion_probe_points[:, 1],
+                completion_probe_points[:, 2],
+                marker="X",
+                s=46,
+                color="#d62728",
+                alpha=0.8,
+                linewidths=0.4,
+                edgecolors="black",
+                zorder=3,
+            )
+        else:
+            ax.scatter(
+                completion_probe_points[:, 0],
+                completion_probe_points[:, 1],
+                marker="X",
+                s=46,
+                color="#d62728",
+                alpha=0.8,
+                linewidths=0.4,
+                edgecolors="black",
+                zorder=3,
+            )
+    if completion_probe_mean is not None and completion_probe_mean.size >= num_components:
+        if num_components == 3:
+            ax.scatter(
+                [completion_probe_mean[0]],
+                [completion_probe_mean[1]],
+                [completion_probe_mean[2]],
+                marker="*",
+                s=170,
+                color="#d62728",
+                alpha=0.95,
+                linewidths=0.6,
+                edgecolors="black",
+                zorder=4,
+            )
+        else:
+            ax.scatter(
+                [completion_probe_mean[0]],
+                [completion_probe_mean[1]],
+                marker="*",
+                s=170,
+                color="#d62728",
+                alpha=0.95,
+                linewidths=0.6,
+                edgecolors="black",
+                zorder=4,
+            )
+
+    reference_handles: List[Line2D] = []
+    if algorithm_reference_points:
+        ref_color = "#111111"
+        ref_coords = np.array(
+            [entry["mean_coordinate"][:num_components] for entry in algorithm_reference_points],
+            dtype=np.float64,
         )
-    if completion_probe_mean is not None and completion_probe_mean.size >= 2:
-        ax.scatter(
-            [completion_probe_mean[0]],
-            [completion_probe_mean[1]],
-            marker="*",
-            s=170,
-            color="#d62728",
-            alpha=0.95,
-            linewidths=0.6,
-            edgecolors="black",
-            zorder=4,
-        )
+        for start, end in _reference_segments(algorithm_reference_points):
+            if num_components == 3:
+                ax.plot(
+                    [start[0], end[0]],
+                    [start[1], end[1]],
+                    [start[2], end[2]],
+                    color=ref_color,
+                    linewidth=1.4,
+                    alpha=0.9,
+                    zorder=5,
+                )
+            else:
+                ax.plot(
+                    [start[0], end[0]],
+                    [start[1], end[1]],
+                    color=ref_color,
+                    linewidth=1.4,
+                    alpha=0.9,
+                    zorder=5,
+                )
+        for entry, coord in zip(algorithm_reference_points, ref_coords):
+            label = (
+                f"{entry['algorithm']} @ step {entry['reference_step']}"
+            )
+            if num_components == 3:
+                ax.scatter(
+                    [coord[0]],
+                    [coord[1]],
+                    [coord[2]],
+                    marker="D",
+                    s=56,
+                    color=ref_color,
+                    alpha=0.95,
+                    linewidths=0.4,
+                    edgecolors="white",
+                    zorder=6,
+                )
+                ax.text(
+                    coord[0],
+                    coord[1],
+                    coord[2],
+                    f" {entry['algorithm'].upper()}",
+                    color=ref_color,
+                    fontsize=8,
+                    zorder=7,
+                )
+            else:
+                ax.scatter(
+                    [coord[0]],
+                    [coord[1]],
+                    marker="D",
+                    s=56,
+                    color=ref_color,
+                    alpha=0.95,
+                    linewidths=0.4,
+                    edgecolors="white",
+                    zorder=6,
+                )
+                ax.text(
+                    coord[0],
+                    coord[1],
+                    f" {entry['algorithm'].upper()}",
+                    color=ref_color,
+                    fontsize=8,
+                    zorder=7,
+                )
+            reference_handles.append(
+                Line2D(
+                    [0],
+                    [0],
+                    marker="D",
+                    color=ref_color,
+                    markerfacecolor=ref_color,
+                    markeredgecolor="white",
+                    markeredgewidth=0.4,
+                    linewidth=1.4,
+                    markersize=6,
+                    label=label,
+                )
+            )
 
     legend_handles = [
         Line2D(
@@ -555,6 +924,7 @@ def plot_step_trajectories(
                 label="terminal probe mean",
             )
         )
+    legend_handles.extend(reference_handles)
     if legend_handles:
         ncols = 1 if len(legend_handles) <= 12 else 2 if len(legend_handles) <= 24 else 3
         ax.legend(
@@ -566,8 +936,206 @@ def plot_step_trajectories(
             framealpha=0.9,
         )
 
-    ax.set_xlabel("PC1")
-    ax.set_ylabel("PC2")
+    labels = _axis_labels(num_components)
+    ax.set_xlabel(labels[0])
+    ax.set_ylabel(labels[1])
+    if num_components == 3:
+        ax.set_zlabel(labels[2])
+    ax.set_title(_format_title_with_variance(title, explained_ratio))
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_step_trajectories_pairwise(
+    points: np.ndarray,
+    graph_labels: np.ndarray,
+    step_indices: np.ndarray,
+    output_path: Path,
+    title: str,
+    explained_ratio: np.ndarray,
+    axes: tuple[int, int],
+    completion_probe_points: np.ndarray | None = None,
+    completion_probe_mean: np.ndarray | None = None,
+    algorithm_reference_points: List[dict] | None = None,
+) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
+    if points.ndim != 2 or points.shape[1] <= max(axes):
+        raise ValueError("Pairwise step plotting requires the requested PCA axes.")
+
+    unique_steps, step_color_map = _build_discrete_color_map(step_indices)
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+    for graph_label in np.unique(graph_labels):
+        graph_mask = graph_labels == graph_label
+        graph_points = points[graph_mask]
+        graph_steps = step_indices[graph_mask]
+        order = np.argsort(graph_steps)
+        graph_points = graph_points[order]
+        graph_steps = graph_steps[order]
+
+        ax.plot(
+            graph_points[:, axes[0]],
+            graph_points[:, axes[1]],
+            color="#5f6368",
+            linewidth=0.45,
+            alpha=0.14,
+            zorder=1,
+        )
+        point_colors = np.array([step_color_map[int(step)] for step in graph_steps])
+        ax.scatter(
+            graph_points[:, axes[0]],
+            graph_points[:, axes[1]],
+            c=point_colors,
+            s=22,
+            alpha=0.9,
+            linewidths=0.2,
+            edgecolors="black",
+            zorder=2,
+        )
+
+    if completion_probe_points is not None and completion_probe_points.size > 0:
+        ax.scatter(
+            completion_probe_points[:, axes[0]],
+            completion_probe_points[:, axes[1]],
+            marker="X",
+            s=46,
+            color="#d62728",
+            alpha=0.8,
+            linewidths=0.4,
+            edgecolors="black",
+            zorder=3,
+        )
+    if completion_probe_mean is not None and completion_probe_mean.size > max(axes):
+        ax.scatter(
+            [completion_probe_mean[axes[0]]],
+            [completion_probe_mean[axes[1]]],
+            marker="*",
+            s=170,
+            color="#d62728",
+            alpha=0.95,
+            linewidths=0.6,
+            edgecolors="black",
+            zorder=4,
+        )
+
+    reference_handles: List[Line2D] = []
+    if algorithm_reference_points:
+        ref_color = "#111111"
+        ref_coords = np.array(
+            [
+                [entry["mean_coordinate"][axes[0]], entry["mean_coordinate"][axes[1]]]
+                for entry in algorithm_reference_points
+            ],
+            dtype=np.float64,
+        )
+        for start, end in _reference_segments(algorithm_reference_points):
+            ax.plot(
+                [start[axes[0]], end[axes[0]]],
+                [start[axes[1]], end[axes[1]]],
+                color=ref_color,
+                linewidth=1.4,
+                alpha=0.9,
+                zorder=5,
+            )
+        for entry, coord in zip(algorithm_reference_points, ref_coords):
+            label = f"{entry['algorithm']} @ step {entry['reference_step']}"
+            ax.scatter(
+                [coord[0]],
+                [coord[1]],
+                marker="D",
+                s=56,
+                color=ref_color,
+                alpha=0.95,
+                linewidths=0.4,
+                edgecolors="white",
+                zorder=6,
+            )
+            ax.text(
+                coord[0],
+                coord[1],
+                f" {entry['algorithm'].upper()}",
+                color=ref_color,
+                fontsize=8,
+                zorder=7,
+            )
+            reference_handles.append(
+                Line2D(
+                    [0],
+                    [0],
+                    marker="D",
+                    color=ref_color,
+                    markerfacecolor=ref_color,
+                    markeredgecolor="white",
+                    markeredgewidth=0.4,
+                    linewidth=1.4,
+                    markersize=6,
+                    label=label,
+                )
+            )
+
+    legend_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="none",
+            markerfacecolor=step_color_map[int(step)],
+            markeredgecolor="black",
+            markeredgewidth=0.2,
+            markersize=5,
+            label=f"step {int(step)}",
+        )
+        for step in unique_steps
+    ]
+    if completion_probe_points is not None and completion_probe_points.size > 0:
+        legend_handles.append(
+            Line2D(
+                [0],
+                [0],
+                marker="X",
+                color="none",
+                markerfacecolor="#d62728",
+                markeredgecolor="black",
+                markeredgewidth=0.4,
+                markersize=6,
+                label="terminal probe",
+            )
+        )
+    if completion_probe_mean is not None and completion_probe_mean.size > max(axes):
+        legend_handles.append(
+            Line2D(
+                [0],
+                [0],
+                marker="*",
+                color="none",
+                markerfacecolor="#d62728",
+                markeredgecolor="black",
+                markeredgewidth=0.4,
+                markersize=8,
+                label="terminal probe mean",
+            )
+        )
+    legend_handles.extend(reference_handles)
+    if legend_handles:
+        ncols = 1 if len(legend_handles) <= 12 else 2 if len(legend_handles) <= 24 else 3
+        ax.legend(
+            handles=legend_handles,
+            title="Execution step",
+            loc="best",
+            fontsize=7,
+            ncol=ncols,
+            framealpha=0.9,
+        )
+
+    ax.set_xlabel(f"PC{axes[0] + 1}")
+    ax.set_ylabel(f"PC{axes[1] + 1}")
     ax.set_title(_format_title_with_variance(title, explained_ratio))
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -637,9 +1205,15 @@ def main() -> None:
     ]
 
     trajectories_tensor = np.stack(trajectories, axis=0)
+    raw_num_steps = int(trajectories_tensor.shape[1])
+    window_steps = execution_window_steps(selected_graphs, args.execution_window)
+    if window_steps is not None:
+        trajectories_tensor = trajectories_tensor[:, :window_steps, :]
     num_graphs, num_steps, latent_dim = trajectories_tensor.shape
-    pca_fit_excludes_extra_steps = args.extra_steps > 0 and num_steps > args.extra_steps
-    pca_fit_steps = num_steps - args.extra_steps if pca_fit_excludes_extra_steps else num_steps
+
+    base_execution_steps = max(raw_num_steps - max(args.extra_steps, 0), 0)
+    pca_fit_steps = min(num_steps, base_execution_steps) if args.extra_steps > 0 else num_steps
+    pca_fit_excludes_extra_steps = args.extra_steps > 0 and num_steps > pca_fit_steps
     pca_fit_tensor = trajectories_tensor[:, :pca_fit_steps, :]
 
     completion_probe_vectors: List[np.ndarray] = []
@@ -705,9 +1279,14 @@ def main() -> None:
         "node_agg": args.node_agg,
         "step_policy": args.step_policy,
         "graph_index": args.graph_index,
-        "target_steps": target_steps,
+        "target_steps": num_steps,
+        "original_target_steps": int(target_steps),
         "extra_steps": args.extra_steps,
+        "execution_window": args.execution_window,
+        "execution_window_label": execution_window_label(args.execution_window),
+        "execution_window_steps": int(num_steps),
         "latent_dim": latent_dim,
+        "pca_components_requested": int(args.pca_components),
         "dataset": str(dataset_path),
         "split": args.split if args.dataset is None else None,
         "num_graphs": num_graphs,
@@ -724,27 +1303,56 @@ def main() -> None:
         "completion_probe_graph_indices": completion_probe_graph_indices,
         "step_pca_completion_probe_mean_coordinate": None,
         "step_pca_completion_probe_count": int(completion_probes.shape[0]),
+        "trajectory_pca_components_used": None,
+        "step_pca_components_used": None,
+        "trajectory_pca_pairwise_views": [],
+        "step_pca_pairwise_views": [],
+        "step_pca_algorithm_reference_chain": None,
     }
 
     if args.pca != "none":
+        window_suffix = execution_window_label(args.execution_window)
+        trajectory_title = "Trajectory-wise PCA"
+        step_title = "Step-wise PCA"
+        if window_suffix is not None:
+            trajectory_title = f"{trajectory_title} [{window_suffix}]"
+            step_title = f"{step_title} [{window_suffix}]"
+
         if args.pca in ("trajectory", "both"):
             payload, used_components = pca_fit_transform(
                 trajectory_pca_matrix, args.pca_components
             )
+            metadata["trajectory_pca_components_used"] = int(used_components)
             np.savez(output_dir / "pca_trajectory.npz", **payload)
             if args.plot and used_components >= 2:
                 plot_trajectory_scatter(
                     payload["projected"],
                     np.array(selected_indices, dtype=np.int32),
                     output_dir / "pca_trajectory.png",
-                    "Trajectory-wise PCA",
+                    trajectory_title,
                     payload["explained_variance_ratio"],
                 )
+                if used_components >= 3:
+                    for axes in _pairwise_component_views(used_components):
+                        pairwise_path = (
+                            output_dir
+                            / f"pca_trajectory{_component_view_suffix(axes)}.png"
+                        )
+                        plot_trajectory_scatter_pairwise(
+                            payload["projected"],
+                            np.array(selected_indices, dtype=np.int32),
+                            pairwise_path,
+                            f"{trajectory_title} (PC{axes[0] + 1}-PC{axes[1] + 1})",
+                            payload["explained_variance_ratio"],
+                            axes,
+                        )
+                        metadata["trajectory_pca_pairwise_views"].append(pairwise_path.name)
 
         if args.pca in ("step", "both"):
             fit_payload, used_components = pca_fit_transform(
                 step_pca_fit_matrix, args.pca_components
             )
+            metadata["step_pca_components_used"] = int(used_components)
             fit_mean = np.asarray(fit_payload["mean"], dtype=np.float64)
             fit_components = np.asarray(fit_payload["components"], dtype=np.float64)
             step_projected_all = pca_project(
@@ -760,6 +1368,13 @@ def main() -> None:
                 step_indices=step_indices,
                 num_steps=num_steps,
             )
+            algorithm_reference_points = algorithm_reference_chain(
+                projected=step_projected_all,
+                step_indices=step_indices,
+                selected_graphs=selected_graphs,
+                num_steps=num_steps,
+            )
+            metadata["step_pca_algorithm_reference_chain"] = algorithm_reference_points
             completion_probe_projected = np.empty((0, used_components), dtype=np.float32)
             completion_probe_mean = None
             if completion_probes.shape[0] > 0:
@@ -783,11 +1398,30 @@ def main() -> None:
                     graph_indices,
                     step_indices,
                     output_dir / "pca_step.png",
-                    "Step-wise PCA",
+                    step_title,
                     payload["explained_variance_ratio"],
                     completion_probe_points=completion_probe_projected,
                     completion_probe_mean=completion_probe_mean,
+                    algorithm_reference_points=algorithm_reference_points,
                 )
+                if used_components >= 3:
+                    for axes in _pairwise_component_views(used_components):
+                        pairwise_path = (
+                            output_dir / f"pca_step{_component_view_suffix(axes)}.png"
+                        )
+                        plot_step_trajectories_pairwise(
+                            step_projected_all,
+                            graph_indices,
+                            step_indices,
+                            pairwise_path,
+                            f"{step_title} (PC{axes[0] + 1}-PC{axes[1] + 1})",
+                            payload["explained_variance_ratio"],
+                            axes,
+                            completion_probe_points=completion_probe_projected,
+                            completion_probe_mean=completion_probe_mean,
+                            algorithm_reference_points=algorithm_reference_points,
+                        )
+                        metadata["step_pca_pairwise_views"].append(pairwise_path.name)
 
     write_json(output_dir / "metadata.json", metadata)
 
