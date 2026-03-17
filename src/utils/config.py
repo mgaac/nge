@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, Any
 from dataclasses import dataclass, field, asdict
 
-from src.utils.task_specs import TERMINATION_LATENT_CHOICES
+from src.utils.task_specs import SELECT_TASK_CHOICES, TERMINATION_LATENT_CHOICES
 
 
 @dataclass
@@ -36,6 +36,10 @@ class TrainingConfig:
     batch_size: int = 10
     eval_interval: int = 10
     seed: int = 42
+    tasks: str = "all"
+    init_checkpoint: str | None = None
+    freeze_modules: list[str] = field(default_factory=list)
+    reset_modules: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -189,6 +193,33 @@ def validate_config(config: ExperimentConfig) -> None:
     
     if config.training.batch_size <= 0:
         raise ValueError(f"batch_size must be positive, got {config.training.batch_size}")
+
+    if config.training.tasks not in SELECT_TASK_CHOICES:
+        raise ValueError(
+            "training.tasks must be one of: "
+            f"{', '.join(SELECT_TASK_CHOICES)}. Got {config.training.tasks}"
+        )
+
+    if config.training.init_checkpoint is not None and not isinstance(
+        config.training.init_checkpoint, str
+    ):
+        raise ValueError("training.init_checkpoint must be a string path or null.")
+
+    for field_name in ("freeze_modules", "reset_modules"):
+        field_value = getattr(config.training, field_name)
+        if not isinstance(field_value, list) or not all(
+            isinstance(entry, str) and entry.strip() for entry in field_value
+        ):
+            raise ValueError(
+                f"training.{field_name} must be a list of non-empty strings."
+            )
+
+    overlap = sorted(set(config.training.freeze_modules) & set(config.training.reset_modules))
+    if overlap:
+        raise ValueError(
+            "training.freeze_modules and training.reset_modules overlap: "
+            + ", ".join(overlap)
+        )
 
     if config.logging.log_interval <= 0:
         raise ValueError(f"log_interval must be positive, got {config.logging.log_interval}")

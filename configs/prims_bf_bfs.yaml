@@ -1,6 +1,6 @@
 # Baseline experiment configuration for NGE
 
-name: baseline
+name: bf-bfs-prims
 
 model:
   embed_dim: 32
@@ -8,14 +8,19 @@ model:
   agg_fn: MAX
   num_mp_layers: 2
   dropout: 0.1
+  termination_mode: distance
+  termination_distance_latent: encoded
+  termination_distance: l2
+  termination_distance_threshold: 12
 
 training:
-  epochs: 10 
+  epochs: 1000
   learning_rate: 1.0e-5
   max_grad_norm: 1.0
   batch_size: 10
   eval_interval: 10
   seed: 42
+  tasks: all
 
 data:
   train_path: data/train_dataset.npz
@@ -24,9 +29,9 @@ data:
 
 logging:
   use_wandb: true
-  wandb_project: nge-exp 
+  wandb_project: nge-prims
   wandb_entity: ""
   log_interval: 1
   save_checkpoints: true
   checkpoint_interval: 50
-  checkpoint_keep_last: 5
+  checkpoint_keep_last: 10

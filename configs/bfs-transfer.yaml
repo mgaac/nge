@@ -1,0 +1,27 @@
+name: bfs-transfer
+
+training:
+  tasks: bfs
+  init_checkpoint: runs/20260316-171159_92733cf-dirty274a57fd_bf/checkpoints/step_00000200
+  freeze_modules:
+    - processor
+    - bf_encoder
+    - bf_decoder
+    - bf_termination
+    - prim_encoder
+    - prim_decoder
+    - prim_termination
+  reset_modules:
+    - bfs_encoder
+    - bfs_decoder
+    - bfs_termination
+
+logging:
+  use_wandb: true
+  wandb_project: nge-bf-bfs-transfer
+  wandb_entity: ""
+  log_interval: 1
+  save_checkpoints: true
+  checkpoint_interval: 50
+  checkpoint_keep_last: 10
+

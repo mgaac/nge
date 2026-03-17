@@ -72,6 +72,39 @@ conda run -n mlx python -m src.data.isolation_dataset \
 conda run -n mlx python -m src.train --config configs/baseline.yaml
 ```
 
+Task selection can be stored in the config:
+
+```yaml
+training:
+  tasks: prim
+```
+
+The CLI still overrides it when needed:
+
+```bash
+conda run -n mlx python -m src.train --config configs/prims.yaml --tasks bfs
+```
+
+Transfer-style training is also config-driven. For example, to reuse a BF-trained processor for BFS:
+
+```yaml
+training:
+  tasks: bfs
+  init_checkpoint: runs/<bf_run>/checkpoints/step_<...>
+  freeze_modules:
+    - processor
+    - bf_encoder
+    - bf_decoder
+    - bf_termination
+    - prim_encoder
+    - prim_decoder
+    - prim_termination
+  reset_modules:
+    - bfs_encoder
+    - bfs_decoder
+    - bfs_termination
+```
+
 ### 5. Resume latest run
 
 ```bash
@@ -118,6 +151,10 @@ training:
   batch_size: <int>
   eval_interval: <int>
   seed: <int>
+  tasks: <all|bf|bfs|prim>
+  init_checkpoint: <path|null>
+  freeze_modules: [<module_path>, ...]
+  reset_modules: [<module_path>, ...]
 data:
   train_path: <path>
   val_path: <path>
@@ -139,7 +176,7 @@ logging:
 | `--config` | Path to YAML config |
 | `--resume` | Resume latest run |
 | `--run-dir` | Explicit run directory (resume/eval) |
-| `--tasks {all,bf,bfs,prim}` | Select optimized/evaluated tasks |
+| `--tasks {all,bf,bfs,prim}` | Override `training.tasks` for train/eval |
 | `--eval-only` | Skip training and only evaluate |
 | `--checkpoint` | Explicit checkpoint file/dir for eval |
 | `--accuracies-only` | Eval-only: skip losses |
@@ -147,6 +184,8 @@ logging:
 | `--failure-split` | Split for failure analysis |
 | `--termination-mode` | Override `head` or `distance` at eval/train time |
 | `--termination-threshold` | Override distance termination threshold |
+
+`training.init_checkpoint` loads weights before training starts. `training.freeze_modules` zeroes gradients for the named module prefixes during optimization. `training.reset_modules` reinitializes named modules from a fresh model after the checkpoint is loaded. Valid top-level module names include `processor`, `bfs_encoder`, `bf_encoder`, `prim_encoder`, `bfs_decoder`, `bf_decoder`, `prim_decoder`, `bfs_termination`, `bf_termination`, and `prim_termination`.
 
 ## Analysis scripts
 

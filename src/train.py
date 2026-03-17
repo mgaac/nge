@@ -68,8 +68,8 @@ def parse_args():
                         help='Checkpoint directory or file to load (for --eval-only)')
     parser.add_argument('--eval-only', action='store_true',
                         help='Skip training and run evaluation only')
-    parser.add_argument('--tasks', type=str, default='all', choices=SELECT_TASK_CHOICES,
-                        help='Tasks to optimize/evaluate: all, bf, bfs, or prim')
+    parser.add_argument('--tasks', type=str, default=None, choices=SELECT_TASK_CHOICES,
+                        help='Tasks to optimize/evaluate. Overrides training.tasks from config.')
     parser.add_argument('--termination-threshold', type=float, default=None,
                         help='Override termination_distance_threshold (useful in --eval-only)')
     parser.add_argument(
@@ -152,6 +152,58 @@ def parse_graph_indices(indices_arg: str | None) -> list[int]:
             raise ValueError(f"Graph indices must be non-negative, got {index}")
         indices.append(index)
     return sorted(set(indices))
+
+
+def resolve_task_selection(args, config: ExperimentConfig) -> str:
+    """Resolve task selection with CLI override precedence over config."""
+    return args.tasks if args.tasks is not None else config.training.tasks
+
+
+def resolve_module_path(root, module_path: str):
+    """Resolve a dotted module path against a model/module tree."""
+    module = root
+    for part in module_path.split("."):
+        if not hasattr(module, part):
+            raise ValueError(f"Unknown module path: {module_path}")
+        module = getattr(module, part)
+    return module
+
+
+def initialize_from_checkpoint_if_needed(model, config: ExperimentConfig) -> int | None:
+    """Load model weights from an initialization checkpoint when configured."""
+    init_checkpoint = config.training.init_checkpoint
+    if not init_checkpoint:
+        return None
+
+    checkpoint_path = Path(init_checkpoint)
+    checkpoint_dir = checkpoint_path.parent if checkpoint_path.is_file() else checkpoint_path
+    manager = CheckpointManager(checkpoint_dir)
+    if checkpoint_path.name == "checkpoints":
+        model, _, step = manager.load(model, optimizer=None, checkpoint_path=None)
+    else:
+        model, _, step = manager.load(model, optimizer=None, checkpoint_path=checkpoint_path)
+    return int(step)
+
+
+def reset_selected_modules(model, reference_model, module_paths: list[str]) -> None:
+    """Reset selected modules by copying parameters from a fresh reference model."""
+    for module_path in module_paths:
+        target_module = resolve_module_path(model, module_path)
+        source_module = resolve_module_path(reference_model, module_path)
+        target_module.update(source_module.parameters())
+
+
+def zero_frozen_gradients(grads, frozen_module_paths: tuple[str, ...]):
+    """Zero gradients for parameter subtrees under the configured module prefixes."""
+    if not frozen_module_paths:
+        return grads
+
+    def maybe_zero(path, value):
+        if any(path == prefix or path.startswith(f"{prefix}.") for prefix in frozen_module_paths):
+            return mx.zeros_like(value)
+        return value
+
+    return utils.tree_map_with_path(maybe_zero, grads)
 
 
 def _eval_trees(*trees):
@@ -586,6 +638,7 @@ def train_epoch(
     epoch: int,
     termination_cfg,
     selected_tasks,
+    frozen_module_paths: tuple[str, ...] = (),
     log_interval: int = 1,
 ):
     """Train for one epoch.
@@ -601,6 +654,7 @@ def train_epoch(
         epoch: Current epoch number
         termination_cfg: ModelConfig controlling termination behavior
         selected_tasks: Dict with task enable flags for bf/bfs
+        frozen_module_paths: Dotted module prefixes whose gradients are zeroed
         log_interval: How often to log metrics
         
     Returns:
@@ -625,7 +679,8 @@ def train_epoch(
         (loss, aux_losses), grads = loss_and_grad_fn(
             model, graph_data, embed_dim, termination_cfg, selected_tasks
         )
-        
+        grads = zero_frozen_gradients(grads, frozen_module_paths)
+
         per_head_magnitude_grads = extract_per_head_magnitude_grads(grads)
         _eval_trees(loss, aux_losses, grads, per_head_magnitude_grads)
         
@@ -741,12 +796,15 @@ def main():
         raise ValueError("--failure-max-records must be non-negative.")
     if args.failure_debug_top_k < 0:
         raise ValueError("--failure-debug-top-k must be non-negative.")
-    selected_tasks = resolve_selected_tasks(args.tasks)
+    if args.resume and config.training.init_checkpoint:
+        raise ValueError("Use either --resume or training.init_checkpoint, not both.")
+    tasks_selection = resolve_task_selection(args, config)
+    selected_tasks = resolve_selected_tasks(tasks_selection)
 
     print("=" * 80)
     print(f"Experiment: {config.name}")
     print(f"Config source: {config_path}")
-    print(f"Selected tasks: {args.tasks}")
+    print(f"Selected tasks: {tasks_selection}")
     print(
         "Termination settings: "
         f"mode={config.model.termination_mode}, "
@@ -755,6 +813,12 @@ def main():
         f"threshold={config.model.termination_distance_threshold}, "
         f"distance_signal={config.model.termination_distance_signal}"
     )
+    if config.training.init_checkpoint:
+        print(f"Init checkpoint: {config.training.init_checkpoint}")
+    if config.training.freeze_modules:
+        print(f"Frozen modules: {', '.join(config.training.freeze_modules)}")
+    if config.training.reset_modules:
+        print(f"Reset modules: {', '.join(config.training.reset_modules)}")
     if args.termination_threshold is not None and config.model.termination_mode != "distance":
         print(
             "Note: --termination-threshold is set but termination_mode is not 'distance'; "
@@ -839,7 +903,7 @@ def main():
         results = {
             "checkpoint_step": step,
             "eval_mode": "accuracies_only" if args.accuracies_only else "full",
-            "selected_tasks": args.tasks,
+            "selected_tasks": tasks_selection,
             "termination": {
                 "mode": config.model.termination_mode,
                 "distance": config.model.termination_distance,
@@ -985,6 +1049,14 @@ def main():
     # Create model
     print("\nCreating model...")
     model = create_model(config)
+    init_step = initialize_from_checkpoint_if_needed(model, config)
+    for module_path in config.training.freeze_modules:
+        resolve_module_path(model, module_path)
+    if config.training.reset_modules:
+        fresh_model = create_model(config)
+        reset_selected_modules(model, fresh_model, config.training.reset_modules)
+    if init_step is not None:
+        print(f"Loaded initialization checkpoint at step {init_step}.")
     model.train()
 
     # Create optimizer
@@ -1039,6 +1111,7 @@ def main():
             epoch=epoch,
             termination_cfg=config.model,
             selected_tasks=selected_tasks,
+            frozen_module_paths=tuple(config.training.freeze_modules),
             log_interval=config.logging.log_interval,
         )
 
