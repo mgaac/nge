@@ -1,8 +1,8 @@
 """Main training script for NGE model with research workflow.
 
 Usage:
-    python -m src.train --config configs/baseline.yaml
-    python -m src.train --config configs/baseline.yaml --resume
+    python -m src.train --config configs/prims_bf_bfs.yaml
+    python -m src.train --config configs/prims_bf_bfs.yaml --resume
 """
 
 import argparse
@@ -16,7 +16,7 @@ import mlx.utils as utils
 import mlx.optimizers as optim
 
 from src.model import NGE, AggregationFn
-from src.data import load_dataset
+from src.data import load_dataset, materialize_graph_sample
 from src.utils import (
     ExperimentConfig,
     load_config,
@@ -42,16 +42,22 @@ from src.utils.termination import (
     resolve_termination_settings,
 )
 from src.utils.task_specs import (
-    METRIC_NAMES,
     SELECT_TASK_CHOICES,
     TERMINATION_LATENT_CHOICES,
+    algorithm_display_name,
+    algorithm_family,
     build_node_algo_features,
     effective_step_count,
     execution_step_counts,
+    feature_values_for_step,
     metric_counters,
     metric_dict,
+    metric_names,
     metric_mask,
     resolve_selected_tasks,
+    selected_tasks_for_graph,
+    targets_for_step,
+    termination_targets_for_step,
 )
 
 
@@ -59,7 +65,7 @@ def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Train NGE model with research workflow')
     parser.add_argument('--config', type=str, required=False,
-                        help='Path to YAML config file (e.g., configs/baseline.yaml)')
+                        help='Path to YAML config file (e.g., configs/prims_bf_bfs.yaml)')
     parser.add_argument('--resume', action='store_true',
                         help='Resume training from latest checkpoint in existing run')
     parser.add_argument('--run-dir', type=str, default=None,
@@ -159,6 +165,35 @@ def resolve_task_selection(args, config: ExperimentConfig) -> str:
     return args.tasks if args.tasks is not None else config.training.tasks
 
 
+def format_accuracy_summary(values, algorithm_order) -> str:
+    """Format a metric vector into a compact evaluation summary line."""
+    names = metric_names(algorithm_order)
+    parts = []
+    for index, name in enumerate(names):
+        parts.append(f"{name}={float(values[index]):.3f}")
+    return ", ".join(parts)
+
+
+def normalize_model_forward(
+    model_output,
+    algorithm_order,
+    return_latents: bool = False,
+):
+    """Normalize legacy and dynamic model outputs into dictionaries."""
+    if return_latents:
+        if isinstance(model_output[0], dict):
+            return model_output
+        bfs_output, bf_output, prim_output, termination_probs, processed_embeddings, aux = model_output
+        outputs = {"bfs": bfs_output, "bf": bf_output, "prim": prim_output}
+        return outputs, termination_probs, processed_embeddings, aux
+
+    if isinstance(model_output[0], dict):
+        return model_output
+    bfs_output, bf_output, prim_output, termination_probs, processed_embeddings = model_output
+    outputs = {"bfs": bfs_output, "bf": bf_output, "prim": prim_output}
+    return outputs, termination_probs, processed_embeddings
+
+
 def resolve_module_path(root, module_path: str):
     """Resolve a dotted module path against a model/module tree."""
     module = root
@@ -169,19 +204,133 @@ def resolve_module_path(root, module_path: str):
     return module
 
 
+def flatten_parameter_shapes(tree, prefix: str = "") -> dict[str, tuple[int, ...]]:
+    """Flatten a parameter pytree into path -> shape mappings."""
+    if hasattr(tree, "shape"):
+        return {prefix: tuple(int(dim) for dim in tree.shape)}
+    if isinstance(tree, dict):
+        shapes = {}
+        for key, value in tree.items():
+            child_prefix = f"{prefix}.{key}" if prefix else str(key)
+            shapes.update(flatten_parameter_shapes(value, child_prefix))
+        return shapes
+    if isinstance(tree, (list, tuple)):
+        shapes = {}
+        for index, value in enumerate(tree):
+            child_prefix = f"{prefix}.{index}" if prefix else str(index)
+            shapes.update(flatten_parameter_shapes(value, child_prefix))
+        return shapes
+    raise TypeError(
+        f"Unsupported parameter tree leaf for prefix '{prefix}': {type(tree).__name__}"
+    )
+
+
+def resolve_checkpoint_directory(checkpoint_ref: str | Path) -> Path:
+    """Resolve a checkpoint reference into a concrete checkpoint directory."""
+    checkpoint_path = Path(checkpoint_ref)
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Initialization checkpoint not found: {checkpoint_path}")
+
+    if checkpoint_path.is_file():
+        checkpoint_path = checkpoint_path.parent
+
+    if (checkpoint_path / "checkpoint.json").exists():
+        return checkpoint_path
+
+    if checkpoint_path.name == "checkpoints":
+        manager = CheckpointManager(checkpoint_path)
+        latest_step = manager.get_latest_step()
+        if latest_step is None:
+            raise FileNotFoundError(
+                f"No checkpoints found under initialization directory: {checkpoint_path}"
+            )
+        return checkpoint_path / f"step_{latest_step:08d}"
+
+    checkpoints_dir = checkpoint_path / "checkpoints"
+    if checkpoints_dir.exists():
+        manager = CheckpointManager(checkpoints_dir)
+        latest_step = manager.get_latest_step()
+        if latest_step is None:
+            raise FileNotFoundError(
+                f"No checkpoints found under run directory: {checkpoint_path}"
+            )
+        return checkpoints_dir / f"step_{latest_step:08d}"
+
+    raise FileNotFoundError(
+        "Initialization checkpoint must point to a run directory, a checkpoints "
+        f"directory, or a concrete checkpoint directory. Got {checkpoint_ref}"
+    )
+
+
+def resolve_run_directory_from_checkpoint(checkpoint_dir: str | Path) -> Path:
+    """Resolve the owning run directory for a checkpoint directory."""
+    checkpoint_dir = Path(checkpoint_dir)
+    if checkpoint_dir.name.startswith("step_") and checkpoint_dir.parent.name == "checkpoints":
+        return checkpoint_dir.parents[1]
+    if checkpoint_dir.name == "checkpoints":
+        return checkpoint_dir.parent
+    if (checkpoint_dir / "config_resolved.yaml").exists():
+        return checkpoint_dir
+    raise FileNotFoundError(
+        "Could not locate config_resolved.yaml for initialization checkpoint "
+        f"{checkpoint_dir}"
+    )
+
+
+def initialize_selected_modules_from_checkpoint(
+    model,
+    config: ExperimentConfig,
+    module_paths: list[str],
+) -> int:
+    """Copy selected modules from a source checkpoint into the current model."""
+    checkpoint_dir = resolve_checkpoint_directory(config.training.init_checkpoint)
+    source_run_dir = resolve_run_directory_from_checkpoint(checkpoint_dir)
+    source_config = load_config(source_run_dir / "config_resolved.yaml")
+    source_model = create_model(source_config)
+    manager = CheckpointManager(checkpoint_dir.parent)
+    source_model, _, step = manager.load(source_model, optimizer=None, checkpoint_path=checkpoint_dir)
+
+    for module_path in module_paths:
+        target_module = resolve_module_path(model, module_path)
+        source_module = resolve_module_path(source_model, module_path)
+        source_params = flatten_parameter_shapes(source_module.parameters())
+        target_params = flatten_parameter_shapes(target_module.parameters())
+        if set(source_params.keys()) != set(target_params.keys()):
+            raise ValueError(
+                f"Incompatible initialization for module '{module_path}': source parameter "
+                f"keys {sorted(source_params.keys())} do not match target keys "
+                f"{sorted(target_params.keys())}. Source algorithms={source_model.algorithms}, "
+                f"target algorithms={model.algorithms}."
+            )
+        for key in sorted(source_params.keys()):
+            source_shape = source_params[key]
+            target_shape = target_params[key]
+            if source_shape != target_shape:
+                raise ValueError(
+                    f"Incompatible initialization for module '{module_path}.{key}': source "
+                    f"shape {source_shape} does not match target shape {target_shape}. "
+                    f"Source algorithms={source_model.algorithms}, target algorithms={model.algorithms}. "
+                    "This source checkpoint is not processor-compatible with the target config."
+                )
+        target_module.update(source_module.parameters())
+
+    return int(step)
+
+
 def initialize_from_checkpoint_if_needed(model, config: ExperimentConfig) -> int | None:
     """Load model weights from an initialization checkpoint when configured."""
     init_checkpoint = config.training.init_checkpoint
     if not init_checkpoint:
         return None
 
-    checkpoint_path = Path(init_checkpoint)
-    checkpoint_dir = checkpoint_path.parent if checkpoint_path.is_file() else checkpoint_path
+    if config.training.init_checkpoint_modules:
+        return initialize_selected_modules_from_checkpoint(
+            model, config, config.training.init_checkpoint_modules
+        )
+
+    checkpoint_dir = resolve_checkpoint_directory(init_checkpoint)
     manager = CheckpointManager(checkpoint_dir)
-    if checkpoint_path.name == "checkpoints":
-        model, _, step = manager.load(model, optimizer=None, checkpoint_path=None)
-    else:
-        model, _, step = manager.load(model, optimizer=None, checkpoint_path=checkpoint_path)
+    model, _, step = manager.load(model, optimizer=None, checkpoint_path=checkpoint_dir)
     return int(step)
 
 
@@ -292,9 +441,38 @@ def create_model(config: ExperimentConfig) -> NGE:
         agg_fn=agg_fn,
         num_mp_layers=config.model.num_mp_layers,
         dropout=config.model.dropout,
+        algorithms=tuple(config.model.algorithms),
     )
     
     return model
+
+
+def load_split_dataset(
+    config: ExperimentConfig,
+    split: str,
+    selected_tasks: dict[str, bool],
+):
+    """Load either a legacy single dataset or a CLRS-style task mixture."""
+    if config.data.task_paths is None:
+        path = {
+            "train": config.data.train_path,
+            "val": config.data.val_path,
+            "test": config.data.test_path,
+        }[split]
+        return load_dataset(path)
+
+    split_key = f"{split}_path"
+    dataset = []
+    algorithm_order = tuple(config.model.algorithms)
+    for algorithm in algorithm_order:
+        if not selected_tasks.get(algorithm, False):
+            continue
+        raw_dataset = load_dataset(config.data.task_paths[algorithm][split_key])
+        dataset.extend(
+            materialize_graph_sample(graph, algorithm_order, active_task=algorithm)
+            for graph in raw_dataset
+        )
+    return dataset
 
 
 def graph_execution_loss_fn(model, graph_data, embed_dim, termination_cfg, selected_tasks):
@@ -308,218 +486,175 @@ def graph_execution_loss_fn(model, graph_data, embed_dim, termination_cfg, selec
     Returns:
         Tuple of (average_loss, per_task_losses)
     """
+    algorithm_order = tuple(model.algorithms)
+    current_metric_names = metric_names(algorithm_order)
+    current_metric_index = {name: index for index, name in enumerate(current_metric_names)}
     accumulated_loss = mx.array(0.0)
-    accumulated_aux_losses = mx.zeros([len(METRIC_NAMES)])
+    accumulated_aux_losses = mx.zeros([len(current_metric_names)])
 
-    num_nodes = graph_data['num_nodes']
+    num_nodes = graph_data["num_nodes"]
     previous_step_hidden_states = mx.zeros([num_nodes, model.processor_embed_dim])
 
-    num_bf_steps = len(graph_data['bf_distance_targets'])
-    num_bfs_steps = len(graph_data['bfs_state_targets'])
-    num_prim_steps = len(graph_data['prim_key_targets'])
-
-    num_steps = max(num_bf_steps, num_bfs_steps, num_prim_steps)
-    step_counts = execution_step_counts(graph_data)
+    step_counts = execution_step_counts(graph_data, algorithm_order)
+    num_steps = max(step_counts.values(), default=0) + 1
     termination_settings = resolve_termination_settings(termination_cfg)
     previous_distance_latent = None
-    loss_mask = metric_mask(selected_tasks)
+    sample_selected_tasks = selected_tasks_for_graph(
+        graph_data, selected_tasks, algorithm_order
+    )
+    loss_mask = metric_mask(sample_selected_tasks, algorithm_order)
 
     for i in range(num_steps):
-        # Check if samples exist
-        bf_sample_exists = (i + 1) < num_bf_steps
-        bfs_sample_exists = (i + 1) < num_bfs_steps
-        prim_sample_exists = (i + 1) < num_prim_steps
-
-        if not (bf_sample_exists or bfs_sample_exists or prim_sample_exists):
+        sample_exists = {algorithm: i < step_counts[algorithm] for algorithm in algorithm_order}
+        if not any(sample_exists.values()):
             continue
 
-        # Prepare data for current step
-        if bfs_sample_exists:
-            true_bfs_state = graph_data['bfs_state_targets'][i]
-            target_bfs_state = graph_data['bfs_state_targets'][i+1]
-        else:
-            true_bfs_state = graph_data['bfs_state_targets'][-1]
-            target_bfs_state = graph_data['bfs_state_targets'][-1]
+        feature_values = feature_values_for_step(graph_data, i, algorithm_order)
+        targets = targets_for_step(graph_data, i, algorithm_order)
+        termination_targets = termination_targets_for_step(graph_data, i, algorithm_order)
 
-        if bf_sample_exists:
-            true_distance_bf = graph_data['bf_distance_targets'][i]
-            target_distance_bf = graph_data['bf_distance_targets'][i+1]
-            target_predecessor_bf = graph_data['bf_predecessor_targets'][i+1]
-        else:
-            true_distance_bf = graph_data['bf_distance_targets'][-1]
-            target_distance_bf = graph_data['bf_distance_targets'][-1]
-            target_predecessor_bf = graph_data['bf_predecessor_targets'][-1]
-
-        if prim_sample_exists:
-            true_prim_state = graph_data['prim_state_targets'][i]
-            target_prim_state = graph_data['prim_state_targets'][i + 1]
-            true_prim_key = graph_data['prim_key_targets'][i]
-            target_prim_key = graph_data['prim_key_targets'][i + 1]
-            target_prim_predecessor = graph_data['prim_predecessor_targets'][i + 1]
-        else:
-            true_prim_state = graph_data['prim_state_targets'][-1]
-            target_prim_state = graph_data['prim_state_targets'][-1]
-            true_prim_key = graph_data['prim_key_targets'][-1]
-            target_prim_key = graph_data['prim_key_targets'][-1]
-            target_prim_predecessor = graph_data['prim_predecessor_targets'][-1]
-
-        # Generate termination targets
-        is_last_bf_step = (i + 1) == (num_bf_steps - 1)
-        is_last_bfs_step = (i + 1) == (num_bfs_steps - 1)
-        is_last_prim_step = (i + 1) == (num_prim_steps - 1)
-        termination_targets = {
-            'bf': mx.array(1.0 if is_last_bf_step else 0.0),
-            'bfs': mx.array(1.0 if is_last_bfs_step else 0.0),
-            'prim': mx.array(1.0 if is_last_prim_step else 0.0),
-        }
-
-        # Prepare model inputs
-        node_algo_features = build_node_algo_features(
-            true_bfs_state,
-            true_distance_bf,
-            true_prim_state,
-            true_prim_key,
+        node_algo_features = build_node_algo_features(feature_values, algorithm_order)
+        input_embeddings = mx.concatenate(
+            [previous_step_hidden_states, node_algo_features], axis=1
         )
-        input_embeddings = mx.concatenate([previous_step_hidden_states, node_algo_features], axis=1)
-        model_input = (input_embeddings, graph_data['edge_matrix'])
+        model_input = (input_embeddings, graph_data["edge_matrix"])
 
         need_aux = needs_aux_latents(termination_settings)
         if need_aux:
-            bfs_output, bf_output, prim_output, termination_probs, processed_embeddings, aux = model(
-                model_input, return_latents=True
+            algorithm_outputs, termination_probs, processed_embeddings, aux = normalize_model_forward(
+                model(model_input, return_latents=True),
+                algorithm_order,
+                return_latents=True,
             )
         else:
-            bfs_output, bf_output, prim_output, termination_probs, processed_embeddings = model(model_input)
+            algorithm_outputs, termination_probs, processed_embeddings = normalize_model_forward(
+                model(model_input),
+                algorithm_order,
+                return_latents=False,
+            )
             aux = None
 
         if termination_settings["mode"] == "distance":
-            current_latent = get_distance_latent(termination_settings, processed_embeddings, aux)
+            current_latent = get_distance_latent(
+                termination_settings, processed_embeddings, aux
+            )
             termination_logits = compute_distance_termination_logits(
                 settings=termination_settings,
                 prev_latent=previous_distance_latent,
                 current_latent=current_latent,
+                algorithms=algorithm_order,
             )
             previous_distance_latent = current_latent
         else:
             termination_logits = termination_probs
 
-        # Compute losses
-        if bf_sample_exists and selected_tasks["bf"]:
-            bf_distance_predictions, bf_predecessor_predictions = bf_output
-            bf_distance_loss = nn.losses.mse_loss(bf_distance_predictions, target_distance_bf, reduction='mean')
+        raw_losses = mx.zeros([len(current_metric_names)])
+        for algorithm in algorithm_order:
+            if not sample_exists[algorithm] or not sample_selected_tasks.get(algorithm, False):
+                continue
 
-            # Convert invalid, denoted by -1, to a valid class, 0.
-            valid_mask = (target_predecessor_bf != -1)
-            safe_targets = mx.where(valid_mask, target_predecessor_bf,
-                                    mx.zeros_like(target_predecessor_bf))  
-            
-            per_node_ce = nn.losses.cross_entropy(bf_predecessor_predictions, safe_targets, reduction='none')
-            
-            # Only consider loss over valid nodes
-            valid_mask_f = valid_mask.astype(mx.float32)
-            denom = mx.maximum(valid_mask_f.sum(), mx.array(1.0))
-            bf_predecessor_loss = (per_node_ce * valid_mask_f).sum() / denom
+            family = algorithm_family(algorithm)
+            target = targets[algorithm]
+            output = algorithm_outputs[algorithm]
 
-            bf_termination_loss = nn.losses.binary_cross_entropy(
-                termination_logits['bf'],
-                termination_targets['bf'],
-                reduction='mean',
+            if family == "state_mask":
+                state_loss = nn.losses.binary_cross_entropy(
+                    output,
+                    target["state"],
+                    reduction="mean",
+                    with_logits=True,
+                )
+                raw_losses = raw_losses.at[current_metric_index[f"{algorithm}_state"]].add(
+                    state_loss
+                )
+            elif family == "shortest_path":
+                distance_predictions, predecessor_predictions = output
+                distance_loss = nn.losses.mse_loss(
+                    distance_predictions,
+                    target["distance"],
+                    reduction="mean",
+                )
+                valid_mask = target["predecessor"] != -1
+                safe_targets = mx.where(
+                    valid_mask,
+                    target["predecessor"],
+                    mx.zeros_like(target["predecessor"]),
+                )
+                per_node_ce = nn.losses.cross_entropy(
+                    predecessor_predictions,
+                    safe_targets,
+                    reduction="none",
+                )
+                valid_mask_f = valid_mask.astype(mx.float32)
+                denom = mx.maximum(valid_mask_f.sum(), mx.array(1.0))
+                predecessor_loss = (per_node_ce * valid_mask_f).sum() / denom
+                raw_losses = raw_losses.at[
+                    current_metric_index[f"{algorithm}_distance"]
+                ].add(distance_loss)
+                raw_losses = raw_losses.at[
+                    current_metric_index[f"{algorithm}_predecessor"]
+                ].add(predecessor_loss)
+            elif family == "mst":
+                state_predictions, key_predictions, predecessor_predictions = output
+                state_loss = nn.losses.binary_cross_entropy(
+                    state_predictions,
+                    target["state"],
+                    reduction="mean",
+                    with_logits=True,
+                )
+                key_loss = nn.losses.mse_loss(
+                    key_predictions,
+                    target["key"],
+                    reduction="mean",
+                )
+                valid_mask = target["predecessor"] != -1
+                safe_targets = mx.where(
+                    valid_mask,
+                    target["predecessor"],
+                    mx.zeros_like(target["predecessor"]),
+                )
+                per_node_ce = nn.losses.cross_entropy(
+                    predecessor_predictions,
+                    safe_targets,
+                    reduction="none",
+                )
+                valid_mask_f = valid_mask.astype(mx.float32)
+                denom = mx.maximum(valid_mask_f.sum(), mx.array(1.0))
+                predecessor_loss = (per_node_ce * valid_mask_f).sum() / denom
+                raw_losses = raw_losses.at[current_metric_index[f"{algorithm}_state"]].add(
+                    state_loss
+                )
+                raw_losses = raw_losses.at[current_metric_index[f"{algorithm}_key"]].add(
+                    key_loss
+                )
+                raw_losses = raw_losses.at[
+                    current_metric_index[f"{algorithm}_predecessor"]
+                ].add(predecessor_loss)
+            else:
+                raise ValueError(f"Unsupported algorithm family: {family}")
+
+            termination_loss = nn.losses.binary_cross_entropy(
+                termination_logits[algorithm],
+                termination_targets[algorithm],
+                reduction="mean",
                 with_logits=True,
             )
             if termination_settings["mode"] == "distance" and not termination_settings["distance_signal"]:
-                bf_termination_loss = mx.array(0.0)
-        else:
-            bf_distance_loss = mx.array(0.0)
-            bf_predecessor_loss = mx.array(0.0)
-            bf_termination_loss = mx.array(0.0)
+                termination_loss = mx.array(0.0)
+            raw_losses = raw_losses.at[
+                current_metric_index[f"{algorithm}_termination"]
+            ].add(termination_loss)
 
-        if bfs_sample_exists and selected_tasks["bfs"]:
-            bfs_state_loss = nn.losses.binary_cross_entropy(bfs_output, target_bfs_state, reduction='mean', with_logits=True)
-            bfs_termination_loss = nn.losses.binary_cross_entropy(
-                termination_logits['bfs'],
-                termination_targets['bfs'],
-                reduction='mean',
-                with_logits=True,
-            )
-            if termination_settings["mode"] == "distance" and not termination_settings["distance_signal"]:
-                bfs_termination_loss = mx.array(0.0)
-        else:
-            bfs_state_loss = mx.array(0.0)
-            bfs_termination_loss = mx.array(0.0)
-
-        if prim_sample_exists and selected_tasks["prim"]:
-            (
-                prim_state_predictions,
-                prim_key_predictions,
-                prim_predecessor_predictions,
-            ) = prim_output
-            prim_state_loss = nn.losses.binary_cross_entropy(
-                prim_state_predictions,
-                target_prim_state,
-                reduction='mean',
-                with_logits=True,
-            )
-            prim_key_loss = nn.losses.mse_loss(
-                prim_key_predictions,
-                target_prim_key,
-                reduction='mean',
-            )
-
-            valid_mask = (target_prim_predecessor != -1)
-            safe_targets = mx.where(
-                valid_mask,
-                target_prim_predecessor,
-                mx.zeros_like(target_prim_predecessor),
-            )
-            per_node_ce = nn.losses.cross_entropy(
-                prim_predecessor_predictions,
-                safe_targets,
-                reduction='none',
-            )
-            valid_mask_f = valid_mask.astype(mx.float32)
-            denom = mx.maximum(valid_mask_f.sum(), mx.array(1.0))
-            prim_predecessor_loss = (per_node_ce * valid_mask_f).sum() / denom
-
-            prim_termination_loss = nn.losses.binary_cross_entropy(
-                termination_logits['prim'],
-                termination_targets['prim'],
-                reduction='mean',
-                with_logits=True,
-            )
-            if termination_settings["mode"] == "distance" and not termination_settings["distance_signal"]:
-                prim_termination_loss = mx.array(0.0)
-        else:
-            prim_state_loss = mx.array(0.0)
-            prim_key_loss = mx.array(0.0)
-            prim_predecessor_loss = mx.array(0.0)
-            prim_termination_loss = mx.array(0.0)
-
-        raw_losses = mx.array(
-            [
-                bf_distance_loss,
-                bf_predecessor_loss,
-                bfs_state_loss,
-                prim_state_loss,
-                prim_key_loss,
-                prim_predecessor_loss,
-                bf_termination_loss,
-                bfs_termination_loss,
-                prim_termination_loss,
-            ]
-        )
         raw_losses = raw_losses * loss_mask
         total_step_loss = mx.sum(raw_losses)
 
-        # Update for next step
         previous_step_hidden_states = processed_embeddings
         accumulated_loss += total_step_loss
         accumulated_aux_losses += raw_losses
 
-    # Compute averages
-    effective_steps = effective_step_count(step_counts, selected_tasks)
-
+    effective_steps = effective_step_count(step_counts, sample_selected_tasks)
     average_loss = accumulated_loss / effective_steps
-    per_task_counter = metric_counters(step_counts)
+    per_task_counter = metric_counters(step_counts, algorithm_order)
     avg_aux_losses = accumulated_aux_losses / per_task_counter
 
     return average_loss, avg_aux_losses
@@ -539,22 +674,40 @@ def evaluate_model(model, dataset, embed_dim, termination_cfg, selected_tasks):
         Tuple of (avg_aux_losses, avg_loss, avg_accuracies)
     """
     model.eval()
-    
+    current_metric_names = metric_names(model.algorithms)
+
     accumulated_epoch_loss = mx.array(0.0)
-    accumulated_aux_losses = mx.zeros([len(METRIC_NAMES)])
-    accumulated_accuracies = mx.zeros([len(METRIC_NAMES)])
+    accumulated_aux_losses = mx.zeros([len(current_metric_names)])
+    accumulated_accuracies = mx.zeros([len(current_metric_names)])
+    accumulated_metric_presence = mx.zeros([len(current_metric_names)])
 
     for graph_data in dataset:
+        sample_selected_tasks = selected_tasks_for_graph(
+            graph_data, selected_tasks, model.algorithms
+        )
         aux_losses, loss, accuracies = calculate_losses_and_accuracies(
             model, graph_data, embed_dim, termination_cfg, selected_tasks
         )
         accumulated_epoch_loss += loss
-        accumulated_aux_losses += aux_losses
-        accumulated_accuracies += accuracies
+        sample_mask = metric_mask(sample_selected_tasks, model.algorithms)
+        accumulated_aux_losses += aux_losses * sample_mask
+        accumulated_accuracies += accuracies * sample_mask
+        accumulated_metric_presence += sample_mask
+        _eval_trees(
+            aux_losses,
+            loss,
+            accuracies,
+            accumulated_epoch_loss,
+            accumulated_aux_losses,
+            accumulated_accuracies,
+            accumulated_metric_presence,
+        )
 
     avg_epoch_loss = accumulated_epoch_loss / len(dataset)
-    avg_aux_losses = accumulated_aux_losses / len(dataset)
-    avg_accuracies = accumulated_accuracies / len(dataset)
+    safe_presence = mx.maximum(accumulated_metric_presence, mx.ones_like(accumulated_metric_presence))
+    avg_aux_losses = accumulated_aux_losses / safe_presence
+    avg_accuracies = accumulated_accuracies / safe_presence
+    _eval_trees(avg_epoch_loss, avg_aux_losses, avg_accuracies)
     
     model.train()
     return avg_aux_losses, avg_epoch_loss, avg_accuracies
@@ -563,8 +716,13 @@ def evaluate_model(model, dataset, embed_dim, termination_cfg, selected_tasks):
 def evaluate_model_accuracies_only(model, dataset, embed_dim, termination_cfg, selected_tasks):
     """Evaluate model and return only mean accuracies over the dataset."""
     model.eval()
-    accumulated_accuracies = mx.zeros([len(METRIC_NAMES)])
+    current_metric_names = metric_names(model.algorithms)
+    accumulated_accuracies = mx.zeros([len(current_metric_names)])
+    accumulated_metric_presence = mx.zeros([len(current_metric_names)])
     for graph_data in dataset:
+        sample_selected_tasks = selected_tasks_for_graph(
+            graph_data, selected_tasks, model.algorithms
+        )
         accuracies = calculate_accuracies(
             model=model,
             graph_data=graph_data,
@@ -572,8 +730,13 @@ def evaluate_model_accuracies_only(model, dataset, embed_dim, termination_cfg, s
             termination_cfg=termination_cfg,
             selected_tasks=selected_tasks,
         )
-        accumulated_accuracies += accuracies
-    avg_accuracies = accumulated_accuracies / len(dataset)
+        sample_mask = metric_mask(sample_selected_tasks, model.algorithms)
+        accumulated_accuracies += accuracies * sample_mask
+        accumulated_metric_presence += sample_mask
+        _eval_trees(accuracies, accumulated_accuracies, accumulated_metric_presence)
+    safe_presence = mx.maximum(accumulated_metric_presence, mx.ones_like(accumulated_metric_presence))
+    avg_accuracies = accumulated_accuracies / safe_presence
+    _eval_trees(avg_accuracies)
     model.train()
     return avg_accuracies
 
@@ -594,15 +757,23 @@ def save_termination_mispredict_distribution_plot(
             "matplotlib is required to render failure-distribution plots."
         ) from exc
 
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5), sharey=True)
-    panels = [
-        ("BF termination mispredicts", "bf", "#1f77b4"),
-        ("BFS termination mispredicts", "bfs", "#ff7f0e"),
-        ("Prim termination mispredicts", "prim", "#2ca02c"),
-    ]
+    algorithms = list(distribution.keys())
+    if not algorithms:
+        raise ValueError("Termination mispredict distribution is empty.")
 
-    for ax, (title, key, color) in zip(axes, panels):
-        payload = distribution.get(key, {})
+    fig, axes = plt.subplots(
+        1,
+        len(algorithms),
+        figsize=(5.5 * len(algorithms), 5),
+        sharey=True,
+    )
+    if len(algorithms) == 1:
+        axes = [axes]
+
+    palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#8c564b", "#17becf"]
+    for ax, algorithm, color in zip(axes, algorithms, palette * ((len(algorithms) // len(palette)) + 1)):
+        title = f"{algorithm_display_name(algorithm)} termination mispredicts"
+        payload = distribution.get(algorithm, {})
         counts = payload.get("counts_by_step", {})
         totals = payload.get("totals_by_step", {})
         steps = sorted({int(s) for s in totals.keys()} | {int(s) for s in counts.keys()})
@@ -661,11 +832,13 @@ def train_epoch(
         Tuple of (avg_loss, avg_aux_losses)
     """
     model.train()
+    algorithm_order = tuple(model.algorithms)
     
     loss_and_grad_fn = nn.value_and_grad(model, graph_execution_loss_fn)
     
     accumulated_epoch_loss = mx.array(0.0)
-    accumulated_aux_losses = mx.zeros([len(METRIC_NAMES)])
+    accumulated_aux_losses = mx.zeros([len(metric_names(algorithm_order))])
+    accumulated_metric_presence = mx.zeros([len(metric_names(algorithm_order))])
     accumulated_per_head_grads = {}
     
     permutation = mx.random.permutation(len(dataset))
@@ -700,11 +873,17 @@ def train_epoch(
 
         # Keep the lazy graph bounded while preserving gradient accumulation.
         accumulated_epoch_loss += loss
-        accumulated_aux_losses += aux_losses
+        sample_selected_tasks = selected_tasks_for_graph(
+            graph_data, selected_tasks, algorithm_order
+        )
+        sample_mask = metric_mask(sample_selected_tasks, algorithm_order)
+        accumulated_aux_losses += aux_losses * sample_mask
+        accumulated_metric_presence += sample_mask
         _eval_trees(
             acc_batch_grads,
             accumulated_epoch_loss,
             accumulated_aux_losses,
+            accumulated_metric_presence,
             accumulated_per_head_grads,
         )
         
@@ -726,7 +905,8 @@ def train_epoch(
             bucket_count = 0
     
     avg_epoch_loss = accumulated_epoch_loss / len(dataset)
-    avg_aux_losses = accumulated_aux_losses / len(dataset)
+    safe_presence = mx.maximum(accumulated_metric_presence, mx.ones_like(accumulated_metric_presence))
+    avg_aux_losses = accumulated_aux_losses / safe_presence
     
     # Compute average per-head gradients
     avg_per_head_grads = {
@@ -740,7 +920,7 @@ def train_epoch(
             "loss": float(avg_epoch_loss),
             "lr": float(optimizer.learning_rate),
         }
-        metrics.update(metric_dict("losses", avg_aux_losses))
+        metrics.update(metric_dict("losses", avg_aux_losses, algorithm_order))
         
         # Add gradient norms
         for head_name, grad_value in avg_per_head_grads.items():
@@ -799,12 +979,16 @@ def main():
     if args.resume and config.training.init_checkpoint:
         raise ValueError("Use either --resume or training.init_checkpoint, not both.")
     tasks_selection = resolve_task_selection(args, config)
-    selected_tasks = resolve_selected_tasks(tasks_selection)
+    selected_tasks = resolve_selected_tasks(tasks_selection, config.model.algorithms)
 
     print("=" * 80)
     print(f"Experiment: {config.name}")
     print(f"Config source: {config_path}")
     print(f"Selected tasks: {tasks_selection}")
+    print(
+        "Data mode: "
+        + ("task-mixture" if config.data.task_paths is not None else "single-dataset")
+    )
     print(
         "Termination settings: "
         f"mode={config.model.termination_mode}, "
@@ -815,6 +999,11 @@ def main():
     )
     if config.training.init_checkpoint:
         print(f"Init checkpoint: {config.training.init_checkpoint}")
+    if config.training.init_checkpoint_modules:
+        print(
+            "Init checkpoint modules: "
+            + ", ".join(config.training.init_checkpoint_modules)
+        )
     if config.training.freeze_modules:
         print(f"Frozen modules: {', '.join(config.training.freeze_modules)}")
     if config.training.reset_modules:
@@ -865,9 +1054,9 @@ def main():
             model, _, step = manager.load(model, optimizer=None, checkpoint_path=checkpoint_path)
 
         print("\nLoading datasets...")
-        train_dataset = load_dataset(config.data.train_path)
-        val_dataset = load_dataset(config.data.val_path)
-        test_dataset = load_dataset(config.data.test_path)
+        train_dataset = load_split_dataset(config, "train", selected_tasks)
+        val_dataset = load_split_dataset(config, "val", selected_tasks)
+        test_dataset = load_split_dataset(config, "test", selected_tasks)
         print(f"Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
         output_dir = run_dir / "analysis" if run_dir else Path("analysis")
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -892,13 +1081,13 @@ def main():
                 model, test_dataset, config.model.embed_dim, config.model, selected_tasks
             )
 
-        val_payload = metric_dict("acc", val_accuracies)
-        test_payload = metric_dict("acc", test_accuracies)
+        val_payload = metric_dict("acc", val_accuracies, model.algorithms)
+        test_payload = metric_dict("acc", test_accuracies, model.algorithms)
         if not args.accuracies_only:
             val_payload["loss"] = float(val_loss)
-            val_payload.update(metric_dict("losses", val_aux_losses))
+            val_payload.update(metric_dict("losses", val_aux_losses, model.algorithms))
             test_payload["loss"] = float(test_loss)
-            test_payload.update(metric_dict("losses", test_aux_losses))
+            test_payload.update(metric_dict("losses", test_aux_losses, model.algorithms))
 
         results = {
             "checkpoint_step": step,
@@ -917,32 +1106,10 @@ def main():
 
         if not args.accuracies_only:
             print(f"Val loss: {val_loss:.6f}")
-        print(
-            "Val accuracies: "
-            f"BF_dist={val_accuracies[0]:.3f}, "
-            f"BF_pred={val_accuracies[1]:.3f}, "
-            f"BFS={val_accuracies[2]:.3f}, "
-            f"Prim_state={val_accuracies[3]:.3f}, "
-            f"Prim_key={val_accuracies[4]:.3f}, "
-            f"Prim_pred={val_accuracies[5]:.3f}, "
-            f"BF_term={val_accuracies[6]:.3f}, "
-            f"BFS_term={val_accuracies[7]:.3f}, "
-            f"Prim_term={val_accuracies[8]:.3f}"
-        )
+        print("Val accuracies: " + format_accuracy_summary(val_accuracies, model.algorithms))
         if not args.accuracies_only:
             print(f"Test loss: {test_loss:.6f}")
-        print(
-            "Test accuracies: "
-            f"BF_dist={test_accuracies[0]:.3f}, "
-            f"BF_pred={test_accuracies[1]:.3f}, "
-            f"BFS={test_accuracies[2]:.3f}, "
-            f"Prim_state={test_accuracies[3]:.3f}, "
-            f"Prim_key={test_accuracies[4]:.3f}, "
-            f"Prim_pred={test_accuracies[5]:.3f}, "
-            f"BF_term={test_accuracies[6]:.3f}, "
-            f"BFS_term={test_accuracies[7]:.3f}, "
-            f"Prim_term={test_accuracies[8]:.3f}"
-        )
+        print("Test accuracies: " + format_accuracy_summary(test_accuracies, model.algorithms))
 
         with open(output_dir / "eval_only.json", "w") as f:
             json.dump(results, f, indent=2)
@@ -1041,9 +1208,9 @@ def main():
 
     # Load datasets
     print("\nLoading datasets...")
-    train_dataset = load_dataset(config.data.train_path)
-    val_dataset = load_dataset(config.data.val_path)
-    test_dataset = load_dataset(config.data.test_path)
+    train_dataset = load_split_dataset(config, "train", selected_tasks)
+    val_dataset = load_split_dataset(config, "val", selected_tasks)
+    test_dataset = load_split_dataset(config, "test", selected_tasks)
     print(f"Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
 
     # Create model
@@ -1123,6 +1290,7 @@ def main():
             val_aux_losses, val_loss, val_accuracies = evaluate_model(
                 model, val_dataset, config.model.embed_dim, config.model, selected_tasks
             )
+            _eval_trees(val_aux_losses, val_loss, val_accuracies)
 
             # Train subsample (for fair comparison with validation)
             train_subsample_size = len(val_dataset)
@@ -1131,30 +1299,20 @@ def main():
             _, _, train_accuracies = evaluate_model(
                 model, train_subsample, config.model.embed_dim, config.model, selected_tasks
             )
+            _eval_trees(train_accuracies)
 
             # Log validation metrics
             val_metrics = {"loss": float(val_loss)}
-            val_metrics.update(metric_dict("acc", val_accuracies))
-            val_metrics.update(metric_dict("losses", val_aux_losses))
+            val_metrics.update(metric_dict("acc", val_accuracies, model.algorithms))
+            val_metrics.update(metric_dict("losses", val_aux_losses, model.algorithms))
             logger.log(epoch, val_metrics, split="val")
 
             # Log train accuracies
-            train_acc_metrics = metric_dict("acc", train_accuracies)
+            train_acc_metrics = metric_dict("acc", train_accuracies, model.algorithms)
             logger.log(epoch, train_acc_metrics, split="train_eval")
 
             print(f"Val loss: {val_loss:.6f}")
-            print(
-                "Val accuracies: "
-                f"BF_dist={val_accuracies[0]:.3f}, "
-                f"BF_pred={val_accuracies[1]:.3f}, "
-                f"BFS={val_accuracies[2]:.3f}, "
-                f"Prim_state={val_accuracies[3]:.3f}, "
-                f"Prim_key={val_accuracies[4]:.3f}, "
-                f"Prim_pred={val_accuracies[5]:.3f}, "
-                f"BF_term={val_accuracies[6]:.3f}, "
-                f"BFS_term={val_accuracies[7]:.3f}, "
-                f"Prim_term={val_accuracies[8]:.3f}"
-            )
+            print("Val accuracies: " + format_accuracy_summary(val_accuracies, model.algorithms))
 
         # Checkpointing
         if config.logging.save_checkpoints and (epoch + 1) % config.logging.checkpoint_interval == 0:
@@ -1169,21 +1327,13 @@ def main():
     )
 
     test_metrics = {"loss": float(test_loss)}
-    test_metrics.update(metric_dict("acc", test_accuracies))
+    test_metrics.update(metric_dict("acc", test_accuracies, model.algorithms))
     logger.log(config.training.epochs, test_metrics, split="test")
     logger.log_summary({"final_" + k: v for k, v in test_metrics.items()})
 
     print("\nTest Results:")
     print(f"  Loss: {test_loss:.6f}")
-    print(f"  BF Distance Acc: {test_accuracies[0]:.3f}")
-    print(f"  BF Predecessor Acc: {test_accuracies[1]:.3f}")
-    print(f"  BFS State Acc: {test_accuracies[2]:.3f}")
-    print(f"  Prim State Acc: {test_accuracies[3]:.3f}")
-    print(f"  Prim Key Acc: {test_accuracies[4]:.3f}")
-    print(f"  Prim Predecessor Acc: {test_accuracies[5]:.3f}")
-    print(f"  BF Termination Acc: {test_accuracies[6]:.3f}")
-    print(f"  BFS Termination Acc: {test_accuracies[7]:.3f}")
-    print(f"  Prim Termination Acc: {test_accuracies[8]:.3f}")
+    print(f"  Accuracies: {format_accuracy_summary(test_accuracies, model.algorithms)}")
 
     # Final checkpoint
     if config.logging.save_checkpoints:

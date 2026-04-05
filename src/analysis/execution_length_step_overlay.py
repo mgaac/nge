@@ -20,14 +20,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from src.analysis.common import (
+    load_analysis_dataset,
     load_model_from_checkpoint,
     resolve_checkpoint_path,
     resolve_config,
     resolve_dataset_path,
 )
 from src.analysis.embedding_trajectories import collect_graph_trajectory, count_execution_steps
-from src.data import load_dataset
-from src.utils.task_specs import ANALYSIS_LATENT_CHOICES
+from src.utils.task_specs import ANALYSIS_LATENT_CHOICES, normalize_algorithm_order
 
 
 def parse_args() -> argparse.Namespace:
@@ -214,10 +214,13 @@ def completion_average_in_step_pca(
 
     completion_vectors: List[np.ndarray] = []
     expected_base_steps = int(metadata["target_steps"]) - int(args.extra_steps)
+    algorithm_order = normalize_algorithm_order(metadata.get("algorithms", tuple(model.algorithms)))
 
     for graph_index in selected_indices:
         graph = dataset[int(graph_index)]
-        base_steps = count_execution_steps(graph, extra_steps=0)
+        base_steps = count_execution_steps(
+            graph, extra_steps=0, algorithm_order=algorithm_order
+        )
         if base_steps != expected_base_steps:
             continue
 
@@ -608,8 +611,11 @@ def main() -> None:
     if args.extra_steps < 0:
         raise ValueError("--extra-steps must be non-negative.")
     config, run_dir = resolve_config(config_path=None, run_dir=args.run_dir)
-    dataset_path = resolve_dataset_path(args.dataset, args.split, config)
-    dataset = load_dataset(dataset_path)
+    algorithm_order = normalize_algorithm_order(config.model.algorithms)
+    dataset_path = resolve_dataset_path(
+        args.dataset, args.split, config, algorithm_order=algorithm_order
+    )
+    dataset = load_analysis_dataset(dataset_path, algorithm_order)
     checkpoint_path = resolve_checkpoint_path(checkpoint=None, run_dir=run_dir)
     model, _ = load_model_from_checkpoint(config, checkpoint_path, run_dir)
     model.eval()

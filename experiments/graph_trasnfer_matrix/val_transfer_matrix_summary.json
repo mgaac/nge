@@ -1,0 +1,662 @@
+{
+  "name": "graph-transfer-matrix",
+  "split": "val",
+  "matrix_dir": "experiments/graph_trasnfer_matrix",
+  "run_root": "runs",
+  "sources": [
+    "bf",
+    "bfs",
+    "prim",
+    "dijkstra",
+    "dag_shortest_paths"
+  ],
+  "targets": [
+    "bf",
+    "bfs",
+    "prim",
+    "dijkstra",
+    "dag_shortest_paths"
+  ],
+  "primary_metrics": {
+    "bf": "bf_predecessor",
+    "bfs": "bfs_state",
+    "prim": "prim_predecessor",
+    "dijkstra": "dijkstra_predecessor",
+    "dag_shortest_paths": "dag_shortest_paths_predecessor"
+  },
+  "primary_baseline_by_target": {
+    "bf": 0.882106602191925,
+    "bfs": 1.0,
+    "prim": 0.7283791899681091,
+    "dijkstra": 0.8654171824455261,
+    "dag_shortest_paths": 0.9874491095542908
+  },
+  "primary_matrix_csv": "experiments/graph_trasnfer_matrix/val_primary_transfer_delta.csv",
+  "primary_matrix_png": "experiments/graph_trasnfer_matrix/val_primary_transfer_delta.png",
+  "primary_raw_matrix_csv": "experiments/graph_trasnfer_matrix/val_primary_transfer_matrix_raw.csv",
+  "primary_raw_matrix_png": "experiments/graph_trasnfer_matrix/val_primary_transfer_matrix_raw.png",
+  "metric_artifacts": {
+    "bf_distance": {
+      "baseline_by_target": {
+        "bf": 0.929780900478363,
+        "bfs": null,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      },
+      "raw_csv": "experiments/graph_trasnfer_matrix/val_bf_distance_matrix_raw.csv",
+      "raw_png": "experiments/graph_trasnfer_matrix/val_bf_distance_matrix_raw.png",
+      "delta_csv": "experiments/graph_trasnfer_matrix/val_bf_distance_delta.csv",
+      "delta_png": "experiments/graph_trasnfer_matrix/val_bf_distance_delta.png"
+    },
+    "bf_predecessor": {
+      "baseline_by_target": {
+        "bf": 0.882106602191925,
+        "bfs": null,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      },
+      "raw_csv": "experiments/graph_trasnfer_matrix/val_bf_predecessor_matrix_raw.csv",
+      "raw_png": "experiments/graph_trasnfer_matrix/val_bf_predecessor_matrix_raw.png",
+      "delta_csv": "experiments/graph_trasnfer_matrix/val_bf_predecessor_delta.csv",
+      "delta_png": "experiments/graph_trasnfer_matrix/val_bf_predecessor_delta.png"
+    },
+    "bf_termination": {
+      "baseline_by_target": {
+        "bf": 0.869952380657196,
+        "bfs": null,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      },
+      "raw_csv": "experiments/graph_trasnfer_matrix/val_bf_termination_matrix_raw.csv",
+      "raw_png": "experiments/graph_trasnfer_matrix/val_bf_termination_matrix_raw.png",
+      "delta_csv": "experiments/graph_trasnfer_matrix/val_bf_termination_delta.csv",
+      "delta_png": "experiments/graph_trasnfer_matrix/val_bf_termination_delta.png"
+    },
+    "bfs_state": {
+      "baseline_by_target": {
+        "bf": null,
+        "bfs": 1.0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      },
+      "raw_csv": "experiments/graph_trasnfer_matrix/val_bfs_state_matrix_raw.csv",
+      "raw_png": "experiments/graph_trasnfer_matrix/val_bfs_state_matrix_raw.png",
+      "delta_csv": "experiments/graph_trasnfer_matrix/val_bfs_state_delta.csv",
+      "delta_png": "experiments/graph_trasnfer_matrix/val_bfs_state_delta.png"
+    },
+    "bfs_termination": {
+      "baseline_by_target": {
+        "bf": null,
+        "bfs": 1.0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      },
+      "raw_csv": "experiments/graph_trasnfer_matrix/val_bfs_termination_matrix_raw.csv",
+      "raw_png": "experiments/graph_trasnfer_matrix/val_bfs_termination_matrix_raw.png",
+      "delta_csv": "experiments/graph_trasnfer_matrix/val_bfs_termination_delta.csv",
+      "delta_png": "experiments/graph_trasnfer_matrix/val_bfs_termination_delta.png"
+    },
+    "dag_shortest_paths_distance": {
+      "baseline_by_target": {
+        "bf": null,
+        "bfs": null,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": 0.9162750244140625
+      },
+      "raw_csv": "experiments/graph_trasnfer_matrix/val_dag_shortest_paths_distance_matrix_raw.csv",
+      "raw_png": "experiments/graph_trasnfer_matrix/val_dag_shortest_paths_distance_matrix_raw.png",
+      "delta_csv": "experiments/graph_trasnfer_matrix/val_dag_shortest_paths_distance_delta.csv",
+      "delta_png": "experiments/graph_trasnfer_matrix/val_dag_shortest_paths_distance_delta.png"
+    },
+    "dag_shortest_paths_predecessor": {
+      "baseline_by_target": {
+        "bf": null,
+        "bfs": null,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": 0.9874491095542908
+      },
+      "raw_csv": "experiments/graph_trasnfer_matrix/val_dag_shortest_paths_predecessor_matrix_raw.csv",
+      "raw_png": "experiments/graph_trasnfer_matrix/val_dag_shortest_paths_predecessor_matrix_raw.png",
+      "delta_csv": "experiments/graph_trasnfer_matrix/val_dag_shortest_paths_predecessor_delta.csv",
+      "delta_png": "experiments/graph_trasnfer_matrix/val_dag_shortest_paths_predecessor_delta.png"
+    },
+    "dag_shortest_paths_termination": {
+      "baseline_by_target": {
+        "bf": null,
+        "bfs": null,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": 0.4784996807575226
+      },
+      "raw_csv": "experiments/graph_trasnfer_matrix/val_dag_shortest_paths_termination_matrix_raw.csv",
+      "raw_png": "experiments/graph_trasnfer_matrix/val_dag_shortest_paths_termination_matrix_raw.png",
+      "delta_csv": "experiments/graph_trasnfer_matrix/val_dag_shortest_paths_termination_delta.csv",
+      "delta_png": "experiments/graph_trasnfer_matrix/val_dag_shortest_paths_termination_delta.png"
+    },
+    "dijkstra_distance": {
+      "baseline_by_target": {
+        "bf": null,
+        "bfs": null,
+        "prim": null,
+        "dijkstra": 0.7694389224052429,
+        "dag_shortest_paths": null
+      },
+      "raw_csv": "experiments/graph_trasnfer_matrix/val_dijkstra_distance_matrix_raw.csv",
+      "raw_png": "experiments/graph_trasnfer_matrix/val_dijkstra_distance_matrix_raw.png",
+      "delta_csv": "experiments/graph_trasnfer_matrix/val_dijkstra_distance_delta.csv",
+      "delta_png": "experiments/graph_trasnfer_matrix/val_dijkstra_distance_delta.png"
+    },
+    "dijkstra_predecessor": {
+      "baseline_by_target": {
+        "bf": null,
+        "bfs": null,
+        "prim": null,
+        "dijkstra": 0.8654171824455261,
+        "dag_shortest_paths": null
+      },
+      "raw_csv": "experiments/graph_trasnfer_matrix/val_dijkstra_predecessor_matrix_raw.csv",
+      "raw_png": "experiments/graph_trasnfer_matrix/val_dijkstra_predecessor_matrix_raw.png",
+      "delta_csv": "experiments/graph_trasnfer_matrix/val_dijkstra_predecessor_delta.csv",
+      "delta_png": "experiments/graph_trasnfer_matrix/val_dijkstra_predecessor_delta.png"
+    },
+    "dijkstra_termination": {
+      "baseline_by_target": {
+        "bf": null,
+        "bfs": null,
+        "prim": null,
+        "dijkstra": 0.23381203413009644,
+        "dag_shortest_paths": null
+      },
+      "raw_csv": "experiments/graph_trasnfer_matrix/val_dijkstra_termination_matrix_raw.csv",
+      "raw_png": "experiments/graph_trasnfer_matrix/val_dijkstra_termination_matrix_raw.png",
+      "delta_csv": "experiments/graph_trasnfer_matrix/val_dijkstra_termination_delta.csv",
+      "delta_png": "experiments/graph_trasnfer_matrix/val_dijkstra_termination_delta.png"
+    },
+    "prim_key": {
+      "baseline_by_target": {
+        "bf": null,
+        "bfs": null,
+        "prim": 0.777641773223877,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      },
+      "raw_csv": "experiments/graph_trasnfer_matrix/val_prim_key_matrix_raw.csv",
+      "raw_png": "experiments/graph_trasnfer_matrix/val_prim_key_matrix_raw.png",
+      "delta_csv": "experiments/graph_trasnfer_matrix/val_prim_key_delta.csv",
+      "delta_png": "experiments/graph_trasnfer_matrix/val_prim_key_delta.png"
+    },
+    "prim_predecessor": {
+      "baseline_by_target": {
+        "bf": null,
+        "bfs": null,
+        "prim": 0.7283791899681091,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      },
+      "raw_csv": "experiments/graph_trasnfer_matrix/val_prim_predecessor_matrix_raw.csv",
+      "raw_png": "experiments/graph_trasnfer_matrix/val_prim_predecessor_matrix_raw.png",
+      "delta_csv": "experiments/graph_trasnfer_matrix/val_prim_predecessor_delta.csv",
+      "delta_png": "experiments/graph_trasnfer_matrix/val_prim_predecessor_delta.png"
+    },
+    "prim_state": {
+      "baseline_by_target": {
+        "bf": null,
+        "bfs": null,
+        "prim": 0.9534121751785278,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      },
+      "raw_csv": "experiments/graph_trasnfer_matrix/val_prim_state_matrix_raw.csv",
+      "raw_png": "experiments/graph_trasnfer_matrix/val_prim_state_matrix_raw.png",
+      "delta_csv": "experiments/graph_trasnfer_matrix/val_prim_state_delta.csv",
+      "delta_png": "experiments/graph_trasnfer_matrix/val_prim_state_delta.png"
+    },
+    "prim_termination": {
+      "baseline_by_target": {
+        "bf": null,
+        "bfs": null,
+        "prim": 0.25411316752433777,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      },
+      "raw_csv": "experiments/graph_trasnfer_matrix/val_prim_termination_matrix_raw.csv",
+      "raw_png": "experiments/graph_trasnfer_matrix/val_prim_termination_matrix_raw.png",
+      "delta_csv": "experiments/graph_trasnfer_matrix/val_prim_termination_delta.csv",
+      "delta_png": "experiments/graph_trasnfer_matrix/val_prim_termination_delta.png"
+    }
+  },
+  "pair_results": [
+    {
+      "source": "bf",
+      "target": "bf",
+      "experiment_name": "graph-transfer-matrix__bf__to__bf",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bf__to__bf.yaml",
+      "run_dir": "runs/iso/20260319-155310_647125b-dirty1e7a69fa_bf",
+      "status": "source_baseline",
+      "metrics": {
+        "loss": 0.8497403860092163,
+        "acc/bf_distance": 0.929780900478363,
+        "acc/bf_predecessor": 0.882106602191925,
+        "acc/bf_termination": 0.869952380657196,
+        "losses/bf_distance": 0.0031236233189702034,
+        "losses/bf_predecessor": 0.23983429372310638,
+        "losses/bf_termination": 0.6067824363708496
+      }
+    },
+    {
+      "source": "bf",
+      "target": "bfs",
+      "experiment_name": "graph-transfer-matrix__bf__to__bfs",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bf__to__bfs.yaml",
+      "run_dir": "runs/20260320-022504_647125b-dirty340505db_graph-transfer-matrix__bf__to__bfs",
+      "status": "ok",
+      "metrics": {
+        "loss": 0.6195046305656433,
+        "acc/bfs_state": 0.9992750287055969,
+        "acc/bfs_termination": 0.8673332333564758,
+        "losses/bfs_state": 0.04255785048007965,
+        "losses/bfs_termination": 0.5769468545913696
+      }
+    },
+    {
+      "source": "bf",
+      "target": "prim",
+      "experiment_name": "graph-transfer-matrix__bf__to__prim",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bf__to__prim.yaml",
+      "run_dir": "runs/20260320-030125_647125b-dirty340505db_graph-transfer-matrix__bf__to__prim",
+      "status": "ok",
+      "metrics": {
+        "loss": 6.700836181640625,
+        "acc/prim_state": 0.9535280466079712,
+        "acc/prim_key": 0.7758471965789795,
+        "acc/prim_predecessor": 0.687913179397583,
+        "acc/prim_termination": 0.21408985555171967,
+        "losses/prim_state": 0.12209971249103546,
+        "losses/prim_key": 0.01611512340605259,
+        "losses/prim_predecessor": 0.7521249651908875,
+        "losses/prim_termination": 5.810496807098389
+      }
+    },
+    {
+      "source": "bf",
+      "target": "dijkstra",
+      "experiment_name": "graph-transfer-matrix__bf__to__dijkstra",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bf__to__dijkstra.yaml",
+      "run_dir": "runs/20260320-055745_647125b-dirty340505db_graph-transfer-matrix__bf__to__dijkstra",
+      "status": "ok",
+      "metrics": {
+        "loss": 8.126699447631836,
+        "acc/dijkstra_distance": 0.7482135891914368,
+        "acc/dijkstra_predecessor": 0.857912003993988,
+        "acc/dijkstra_termination": 0.15861257910728455,
+        "losses/dijkstra_distance": 0.013781057670712471,
+        "losses/dijkstra_predecessor": 0.36495503783226013,
+        "losses/dijkstra_termination": 7.747964382171631
+      }
+    },
+    {
+      "source": "bf",
+      "target": "dag_shortest_paths",
+      "experiment_name": "graph-transfer-matrix__bf__to__dag_shortest_paths",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bf__to__dag_shortest_paths.yaml",
+      "run_dir": "runs/20260320-072425_647125b-dirty340505db_graph-transfer-matrix__bf__to__dag_shortest_paths",
+      "status": "ok",
+      "metrics": {
+        "loss": 5.743380069732666,
+        "acc/dag_shortest_paths_distance": 0.9122999310493469,
+        "acc/dag_shortest_paths_predecessor": 0.9868136048316956,
+        "acc/dag_shortest_paths_termination": 0.20650005340576172,
+        "losses/dag_shortest_paths_distance": 0.008990578353404999,
+        "losses/dag_shortest_paths_predecessor": 0.03086959198117256,
+        "losses/dag_shortest_paths_termination": 5.703519344329834
+      }
+    },
+    {
+      "source": "bfs",
+      "target": "bf",
+      "experiment_name": "graph-transfer-matrix__bfs__to__bf",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bfs__to__bf.yaml",
+      "run_dir": "runs/20260320-085257_647125b-dirty340505db_graph-transfer-matrix__bfs__to__bf",
+      "status": "ok",
+      "metrics": {
+        "loss": 1.09952974319458,
+        "acc/bf_distance": 0.7195322513580322,
+        "acc/bf_predecessor": 0.8987187743186951,
+        "acc/bf_termination": 0.8025951385498047,
+        "losses/bf_distance": 0.00759115582332015,
+        "losses/bf_predecessor": 0.30363258719444275,
+        "losses/bf_termination": 0.7883058190345764
+      }
+    },
+    {
+      "source": "bfs",
+      "target": "bfs",
+      "experiment_name": "graph-transfer-matrix__bfs__to__bfs",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bfs__to__bfs.yaml",
+      "run_dir": "runs/iso/20260319-133649_647125b-dirty1e7a69fa_bfs",
+      "status": "source_baseline",
+      "metrics": {
+        "loss": 0.013551902957260609,
+        "acc/bfs_state": 1.0,
+        "acc/bfs_termination": 1.0,
+        "losses/bfs_state": 0.00042032907367683947,
+        "losses/bfs_termination": 0.013131576590240002
+      }
+    },
+    {
+      "source": "bfs",
+      "target": "prim",
+      "experiment_name": "graph-transfer-matrix__bfs__to__prim",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bfs__to__prim.yaml",
+      "run_dir": "runs/20260320-092650_647125b-dirty340505db_graph-transfer-matrix__bfs__to__prim",
+      "status": "ok",
+      "metrics": {
+        "loss": 6.661139011383057,
+        "acc/prim_state": 0.9526004195213318,
+        "acc/prim_key": 0.8843120336532593,
+        "acc/prim_predecessor": 0.6994666457176208,
+        "acc/prim_termination": 0.15146633982658386,
+        "losses/prim_state": 0.1198614090681076,
+        "losses/prim_key": 0.01614522375166416,
+        "losses/prim_predecessor": 0.74676513671875,
+        "losses/prim_termination": 5.778364658355713
+      }
+    },
+    {
+      "source": "bfs",
+      "target": "dijkstra",
+      "experiment_name": "graph-transfer-matrix__bfs__to__dijkstra",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bfs__to__dijkstra.yaml",
+      "run_dir": "runs/20260320-122510_647125b-dirty340505db_graph-transfer-matrix__bfs__to__dijkstra",
+      "status": "ok",
+      "metrics": {
+        "loss": 8.338757514953613,
+        "acc/dijkstra_distance": 0.7224013805389404,
+        "acc/dijkstra_predecessor": 0.8510971665382385,
+        "acc/dijkstra_termination": 0.20309855043888092,
+        "losses/dijkstra_distance": 0.016581863164901733,
+        "losses/dijkstra_predecessor": 0.38851773738861084,
+        "losses/dijkstra_termination": 7.933658599853516
+      }
+    },
+    {
+      "source": "bfs",
+      "target": "dag_shortest_paths",
+      "experiment_name": "graph-transfer-matrix__bfs__to__dag_shortest_paths",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bfs__to__dag_shortest_paths.yaml",
+      "run_dir": "runs/20260320-154923_647125b-dirty340505db_graph-transfer-matrix__bfs__to__dag_shortest_paths",
+      "status": "ok",
+      "metrics": {
+        "loss": 7.722793102264404,
+        "acc/dag_shortest_paths_distance": 0.6024500727653503,
+        "acc/dag_shortest_paths_predecessor": 0.9869588613510132,
+        "acc/dag_shortest_paths_termination": 0.20900006592273712,
+        "losses/dag_shortest_paths_distance": 0.013997704721987247,
+        "losses/dag_shortest_paths_predecessor": 0.03575478494167328,
+        "losses/dag_shortest_paths_termination": 7.673040390014648
+      }
+    },
+    {
+      "source": "prim",
+      "target": "bf",
+      "experiment_name": "graph-transfer-matrix__prim__to__bf",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/prim__to__bf.yaml",
+      "run_dir": "runs/20260320-184435_647125b-dirty340505db_graph-transfer-matrix__prim__to__bf",
+      "status": "ok",
+      "metrics": {
+        "loss": 1.1650196313858032,
+        "acc/bf_distance": 0.668784499168396,
+        "acc/bf_predecessor": 0.8937967419624329,
+        "acc/bf_termination": 0.8095951080322266,
+        "losses/bf_distance": 0.00804055854678154,
+        "losses/bf_predecessor": 0.3063526451587677,
+        "losses/bf_termination": 0.8506267666816711
+      }
+    },
+    {
+      "source": "prim",
+      "target": "bfs",
+      "experiment_name": "graph-transfer-matrix__prim__to__bfs",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/prim__to__bfs.yaml",
+      "run_dir": "runs/20260320-211735_647125b-dirty340505db_graph-transfer-matrix__prim__to__bfs",
+      "status": "ok",
+      "metrics": {
+        "loss": 0.7530567049980164,
+        "acc/bfs_state": 0.9992501139640808,
+        "acc/bfs_termination": 0.6798335909843445,
+        "losses/bfs_state": 0.05681397765874863,
+        "losses/bfs_termination": 0.6962427496910095
+      }
+    },
+    {
+      "source": "prim",
+      "target": "prim",
+      "experiment_name": "graph-transfer-matrix__prim__to__prim",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/prim__to__prim.yaml",
+      "run_dir": "runs/iso/20260319-100544_647125b-dirty1e7a69fa_prim",
+      "status": "source_baseline",
+      "metrics": {
+        "loss": 4.60797119140625,
+        "acc/prim_state": 0.9534121751785278,
+        "acc/prim_key": 0.777641773223877,
+        "acc/prim_predecessor": 0.7283791899681091,
+        "acc/prim_termination": 0.25411316752433777,
+        "losses/prim_state": 0.10027734935283661,
+        "losses/prim_key": 0.015715714544057846,
+        "losses/prim_predecessor": 0.6121307611465454,
+        "losses/prim_termination": 3.879847526550293
+      }
+    },
+    {
+      "source": "prim",
+      "target": "dijkstra",
+      "experiment_name": "graph-transfer-matrix__prim__to__dijkstra",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/prim__to__dijkstra.yaml",
+      "run_dir": "runs/20260320-213710_647125b-dirty340505db_graph-transfer-matrix__prim__to__dijkstra",
+      "status": "ok",
+      "metrics": {
+        "loss": 7.691973686218262,
+        "acc/dijkstra_distance": 0.741442084312439,
+        "acc/dijkstra_predecessor": 0.8540024757385254,
+        "acc/dijkstra_termination": 0.202098548412323,
+        "losses/dijkstra_distance": 0.01955598033964634,
+        "losses/dijkstra_predecessor": 0.4068366289138794,
+        "losses/dijkstra_termination": 7.265583038330078
+      }
+    },
+    {
+      "source": "prim",
+      "target": "dag_shortest_paths",
+      "experiment_name": "graph-transfer-matrix__prim__to__dag_shortest_paths",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/prim__to__dag_shortest_paths.yaml",
+      "run_dir": "runs/20260321-015125_647125b-dirty340505db_graph-transfer-matrix__prim__to__dag_shortest_paths",
+      "status": "ok",
+      "metrics": {
+        "loss": 5.093236923217773,
+        "acc/dag_shortest_paths_distance": 0.8958250284194946,
+        "acc/dag_shortest_paths_predecessor": 0.9850943088531494,
+        "acc/dag_shortest_paths_termination": 0.20000003278255463,
+        "losses/dag_shortest_paths_distance": 0.010004179552197456,
+        "losses/dag_shortest_paths_predecessor": 0.03802633285522461,
+        "losses/dag_shortest_paths_termination": 5.045206069946289
+      }
+    },
+    {
+      "source": "dijkstra",
+      "target": "bf",
+      "experiment_name": "graph-transfer-matrix__dijkstra__to__bf",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dijkstra__to__bf.yaml",
+      "run_dir": "runs/20260321-082025_647125b-dirty340505db_graph-transfer-matrix__dijkstra__to__bf",
+      "status": "ok",
+      "metrics": {
+        "loss": 1.3846129179000854,
+        "acc/bf_distance": 0.8302105665206909,
+        "acc/bf_predecessor": 0.8712904453277588,
+        "acc/bf_termination": 0.7864284515380859,
+        "losses/bf_distance": 0.005942921619862318,
+        "losses/bf_predecessor": 0.29293835163116455,
+        "losses/bf_termination": 1.0857317447662354
+      }
+    },
+    {
+      "source": "dijkstra",
+      "target": "bfs",
+      "experiment_name": "graph-transfer-matrix__dijkstra__to__bfs",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dijkstra__to__bfs.yaml",
+      "run_dir": "runs/20260321-090335_647125b-dirty340505db_graph-transfer-matrix__dijkstra__to__bfs",
+      "status": "ok",
+      "metrics": {
+        "loss": 0.7563046216964722,
+        "acc/bfs_state": 0.9975334405899048,
+        "acc/bfs_termination": 0.8314998745918274,
+        "losses/bfs_state": 0.046825747936964035,
+        "losses/bfs_termination": 0.7094787359237671
+      }
+    },
+    {
+      "source": "dijkstra",
+      "target": "prim",
+      "experiment_name": "graph-transfer-matrix__dijkstra__to__prim",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dijkstra__to__prim.yaml",
+      "run_dir": "runs/20260321-092542_647125b-dirty340505db_graph-transfer-matrix__dijkstra__to__prim",
+      "status": "ok",
+      "metrics": {
+        "loss": 7.018901824951172,
+        "acc/prim_state": 0.9422606825828552,
+        "acc/prim_key": 0.7585565447807312,
+        "acc/prim_predecessor": 0.6697524785995483,
+        "acc/prim_termination": 0.19690266251564026,
+        "losses/prim_state": 0.12603121995925903,
+        "losses/prim_key": 0.016820339486002922,
+        "losses/prim_predecessor": 0.7917210459709167,
+        "losses/prim_termination": 6.0843305587768555
+      }
+    },
+    {
+      "source": "dijkstra",
+      "target": "dijkstra",
+      "experiment_name": "graph-transfer-matrix__dijkstra__to__dijkstra",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dijkstra__to__dijkstra.yaml",
+      "run_dir": "runs/iso/20260319-082943_647125b-dirty1e7a69fa_dijkstra",
+      "status": "source_baseline",
+      "metrics": {
+        "loss": 5.537087917327881,
+        "acc/dijkstra_distance": 0.7694389224052429,
+        "acc/dijkstra_predecessor": 0.8654171824455261,
+        "acc/dijkstra_termination": 0.23381203413009644,
+        "losses/dijkstra_distance": 0.013729619793593884,
+        "losses/dijkstra_predecessor": 0.32741543650627136,
+        "losses/dijkstra_termination": 5.195944309234619
+      }
+    },
+    {
+      "source": "dijkstra",
+      "target": "dag_shortest_paths",
+      "experiment_name": "graph-transfer-matrix__dijkstra__to__dag_shortest_paths",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dijkstra__to__dag_shortest_paths.yaml",
+      "run_dir": "runs/20260321-133403_647125b-dirty340505db_graph-transfer-matrix__dijkstra__to__dag_shortest_paths",
+      "status": "ok",
+      "metrics": {
+        "loss": 5.899493217468262,
+        "acc/dag_shortest_paths_distance": 0.6969749927520752,
+        "acc/dag_shortest_paths_predecessor": 0.9858022928237915,
+        "acc/dag_shortest_paths_termination": 0.20450004935264587,
+        "losses/dag_shortest_paths_distance": 0.012240312993526459,
+        "losses/dag_shortest_paths_predecessor": 0.0340009368956089,
+        "losses/dag_shortest_paths_termination": 5.853250503540039
+      }
+    },
+    {
+      "source": "dag_shortest_paths",
+      "target": "bf",
+      "experiment_name": "graph-transfer-matrix__dag_shortest_paths__to__bf",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dag_shortest_paths__to__bf.yaml",
+      "run_dir": "runs/20260321-185056_647125b-dirty340505db_graph-transfer-matrix__dag_shortest_paths__to__bf",
+      "status": "ok",
+      "metrics": {
+        "loss": 1.3733280897140503,
+        "acc/bf_distance": 0.7723751664161682,
+        "acc/bf_predecessor": 0.8912542462348938,
+        "acc/bf_termination": 0.8270952701568604,
+        "losses/bf_distance": 0.007571342401206493,
+        "losses/bf_predecessor": 0.327551931142807,
+        "losses/bf_termination": 1.0382046699523926
+      }
+    },
+    {
+      "source": "dag_shortest_paths",
+      "target": "bfs",
+      "experiment_name": "graph-transfer-matrix__dag_shortest_paths__to__bfs",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dag_shortest_paths__to__bfs.yaml",
+      "run_dir": "runs/20260321-213241_647125b-dirty340505db_graph-transfer-matrix__dag_shortest_paths__to__bfs",
+      "status": "ok",
+      "metrics": {
+        "loss": 0.800595223903656,
+        "acc/bfs_state": 0.9997749924659729,
+        "acc/bfs_termination": 0.7440000176429749,
+        "losses/bfs_state": 0.03702889382839203,
+        "losses/bfs_termination": 0.7635660767555237
+      }
+    },
+    {
+      "source": "dag_shortest_paths",
+      "target": "prim",
+      "experiment_name": "graph-transfer-matrix__dag_shortest_paths__to__prim",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dag_shortest_paths__to__prim.yaml",
+      "run_dir": "runs/20260321-221735_647125b-dirty340505db_graph-transfer-matrix__dag_shortest_paths__to__prim",
+      "status": "ok",
+      "metrics": {
+        "loss": 7.0021281242370605,
+        "acc/prim_state": 0.9535031318664551,
+        "acc/prim_key": 0.7322435975074768,
+        "acc/prim_predecessor": 0.6854845285415649,
+        "acc/prim_termination": 0.21503429114818573,
+        "losses/prim_state": 0.11593016982078552,
+        "losses/prim_key": 0.018269173800945282,
+        "losses/prim_predecessor": 0.7652027010917664,
+        "losses/prim_termination": 6.102726459503174
+      }
+    },
+    {
+      "source": "dag_shortest_paths",
+      "target": "dijkstra",
+      "experiment_name": "graph-transfer-matrix__dag_shortest_paths__to__dijkstra",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dag_shortest_paths__to__dijkstra.yaml",
+      "run_dir": "runs/20260322-001124_647125b-dirty340505db_graph-transfer-matrix__dag_shortest_paths__to__dijkstra",
+      "status": "ok",
+      "metrics": {
+        "loss": 8.440349578857422,
+        "acc/dijkstra_distance": 0.7203230857849121,
+        "acc/dijkstra_predecessor": 0.8534983992576599,
+        "acc/dijkstra_termination": 0.20259852707386017,
+        "losses/dijkstra_distance": 0.014953124336898327,
+        "losses/dijkstra_predecessor": 0.3981820046901703,
+        "losses/dijkstra_termination": 8.027216911315918
+      }
+    },
+    {
+      "source": "dag_shortest_paths",
+      "target": "dag_shortest_paths",
+      "experiment_name": "graph-transfer-matrix__dag_shortest_paths__to__dag_shortest_paths",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dag_shortest_paths__to__dag_shortest_paths.yaml",
+      "run_dir": "runs/iso/20260319-162819_647125b-dirty1e7a69fa_dag-shortest-paths",
+      "status": "source_baseline",
+      "metrics": {
+        "loss": 1.401474952697754,
+        "acc/dag_shortest_paths_distance": 0.9162750244140625,
+        "acc/dag_shortest_paths_predecessor": 0.9874491095542908,
+        "acc/dag_shortest_paths_termination": 0.4784996807575226,
+        "losses/dag_shortest_paths_distance": 0.008048695512115955,
+        "losses/dag_shortest_paths_predecessor": 0.03255213052034378,
+        "losses/dag_shortest_paths_termination": 1.3608742952346802
+      }
+    }
+  ]
+}

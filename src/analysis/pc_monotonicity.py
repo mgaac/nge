@@ -15,6 +15,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from src.analysis.common import (
+    load_analysis_dataset,
     load_model_from_checkpoint,
     resolve_checkpoint_path,
     resolve_config,
@@ -27,8 +28,14 @@ from src.analysis.embedding_trajectories import (
     pca_fit_transform,
     pca_project,
 )
-from src.data import load_dataset
-from src.utils.task_specs import ALGORITHMS, SELECT_TASK_CHOICES, resolve_selected_tasks
+from src.utils.task_specs import (
+    ANALYSIS_LATENT_CHOICES,
+    SELECT_TASK_CHOICES,
+    algorithm_display_name,
+    execution_step_counts,
+    normalize_algorithm_order,
+    resolve_selected_tasks,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -79,16 +86,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--latent",
         type=str,
-        choices=[
-            "processed",
-            "encoded",
-            "encoded_bfs",
-            "encoded_bf",
-            "encoded_prim",
-            "processed_zero_bfs_input",
-            "processed_zero_bf_input",
-            "processed_zero_prim_input",
-        ],
+        choices=ANALYSIS_LATENT_CHOICES,
         default="processed",
         help="Which latent representation to collect.",
     )
@@ -254,8 +252,13 @@ def summarize_pc_relation(x: np.ndarray, y: np.ndarray) -> dict:
 
 
 def build_selection(
-    dataset: List[dict], graph_index: int | None, max_graphs: int | None, extra_steps: int,
-    step_policy: str, fixed_steps: int | None
+    dataset: List[dict],
+    algorithm_order: tuple[str, ...],
+    graph_index: int | None,
+    max_graphs: int | None,
+    extra_steps: int,
+    step_policy: str,
+    fixed_steps: int | None,
 ) -> tuple[List[int], List[dict], int]:
     if graph_index is not None:
         if graph_index < 0 or graph_index >= len(dataset):
@@ -263,10 +266,12 @@ def build_selection(
                 f"--graph-index out of range: {graph_index} (dataset size={len(dataset)})"
             )
         graph = dataset[graph_index]
-        return [graph_index], [graph], count_execution_steps(graph, extra_steps)
+        return [graph_index], [graph], count_execution_steps(graph, extra_steps, algorithm_order)
 
     graphs = dataset[: max_graphs] if max_graphs is not None else dataset
-    step_counts = [count_execution_steps(graph, extra_steps) for graph in graphs]
+    step_counts = [
+        count_execution_steps(graph, extra_steps, algorithm_order) for graph in graphs
+    ]
     target_steps = choose_step_count(step_counts, step_policy, fixed_steps)
     selected_indices = [idx for idx, steps in enumerate(step_counts) if steps == target_steps]
     if not selected_indices:
@@ -311,13 +316,15 @@ def plot_task_scatter_grid(
         axis.set_xlabel(f"PC{pc_idx + 1}")
         axis.set_ylabel("Sequential distance")
         axis.set_title(
-            f"{task.upper()} vs PC{pc_idx + 1}\n"
+            f"{algorithm_display_name(task)} vs PC{pc_idx + 1}\n"
             f"rho={stats['spearman_rho'] if stats['spearman_rho'] is not None else float('nan'):.3f}"
         )
         axis.grid(True, alpha=0.3)
         fig.colorbar(scatter, ax=axis, label="relative step to task end")
 
-    fig.suptitle(f"Sequential distance monotonicity near {task.upper()} termination")
+    fig.suptitle(
+        f"Sequential distance monotonicity near {algorithm_display_name(task)} termination"
+    )
     fig.tight_layout()
     fig.savefig(output_path, dpi=220, bbox_inches="tight")
     plt.close(fig)
@@ -328,7 +335,7 @@ def plot_spearman_heatmap(
     pc_indices: List[int],
     output_path: Path,
 ) -> None:
-    tasks = [task for task in ALGORITHMS if task in results]
+    tasks = list(results.keys())
     if not tasks or not pc_indices:
         return
 
@@ -343,7 +350,10 @@ def plot_spearman_heatmap(
     fig, ax = plt.subplots(figsize=(1.8 * len(pc_indices) + 2.5, 1.4 * len(tasks) + 2.0))
     im = ax.imshow(matrix, cmap="coolwarm", vmin=-1.0, vmax=1.0, aspect="auto")
     ax.set_xticks(np.arange(len(pc_indices)), [f"PC{idx + 1}" for idx in pc_indices])
-    ax.set_yticks(np.arange(len(tasks)), [task.upper() for task in tasks])
+    ax.set_yticks(
+        np.arange(len(tasks)),
+        [algorithm_display_name(task) for task in tasks],
+    )
     ax.set_title("Spearman rho: sequential distance vs PCA coordinate")
     for row in range(len(tasks)):
         for col in range(len(pc_indices)):
@@ -370,7 +380,10 @@ def main() -> None:
         raise ValueError("--relative-start must be <= --relative-end.")
 
     config, run_dir = resolve_config(args.config, args.run_dir)
-    dataset_path = resolve_dataset_path(args.dataset, args.split, config)
+    algorithm_order = normalize_algorithm_order(config.model.algorithms)
+    dataset_path = resolve_dataset_path(
+        args.dataset, args.split, config, algorithm_order=algorithm_order
+    )
     if not dataset_path.exists():
         raise FileNotFoundError(f"Dataset not found: {dataset_path}")
 
@@ -378,9 +391,10 @@ def main() -> None:
     model, step = load_model_from_checkpoint(config, checkpoint_path, run_dir)
     model.eval()
 
-    dataset = load_dataset(dataset_path)
+    dataset = load_analysis_dataset(dataset_path, algorithm_order)
     selected_indices, selected_graphs, target_steps = build_selection(
         dataset=dataset,
+        algorithm_order=algorithm_order,
         graph_index=args.graph_index,
         max_graphs=args.max_graphs,
         extra_steps=args.extra_steps,
@@ -428,7 +442,7 @@ def main() -> None:
                 args.distance,
             )
 
-    selected_tasks = resolve_selected_tasks(args.tasks)
+    selected_tasks = resolve_selected_tasks(args.tasks, algorithm_order)
     task_results: Dict[str, dict] = {}
     output_dir = (
         Path(args.output_dir)
@@ -441,15 +455,15 @@ def main() -> None:
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for task in ALGORITHMS:
-        if not selected_tasks[task]:
+    for task in algorithm_order:
+        if not selected_tasks.get(task, False):
             continue
 
         points: List[dict] = []
         matched_graph_indices: List[int] = []
         end_steps_for_task: List[int] = []
         for local_idx, graph in enumerate(selected_graphs):
-            end_step = execution_step_counts(graph)[task]
+            end_step = execution_step_counts(graph, algorithm_order)[task]
             if args.end_step is not None and abs(end_step - args.end_step) > args.end_step_tol:
                 continue
             matched_graph_indices.append(int(selected_indices[local_idx]))
@@ -528,7 +542,10 @@ def main() -> None:
         "pca_components_requested": int(args.pca_components),
         "pca_components_used": int(used_components),
         "pc_indices_analyzed": [int(idx + 1) for idx in pc_indices],
-        "selected_tasks": [task for task in ALGORITHMS if selected_tasks[task]],
+        "algorithms": list(algorithm_order),
+        "selected_tasks": [
+            task for task in algorithm_order if selected_tasks.get(task, False)
+        ],
         "graph_index": args.graph_index,
         "max_graphs": args.max_graphs,
         "target_steps": int(target_steps),

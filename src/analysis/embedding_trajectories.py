@@ -13,18 +13,20 @@ import numpy as np
 
 from src.analysis.common import (
     compute_forward_latents,
-    iter_execution_inputs,
+    count_execution_steps as shared_count_execution_steps,
+    iter_execution_feature_values,
+    load_analysis_dataset,
     load_model_from_checkpoint,
     resolve_checkpoint_path,
     resolve_config,
     resolve_dataset_path,
 )
-from src.data import load_dataset
 from src.utils.task_specs import (
-    ALGORITHMS,
     ANALYSIS_LATENT_CHOICES,
     build_node_algo_features,
     execution_step_counts,
+    normalize_algorithm_order,
+    supported_algorithms,
 )
 
 
@@ -109,7 +111,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--execution-window",
         type=str,
-        choices=["all", *ALGORITHMS],
+        choices=["all", *supported_algorithms()],
         default="all",
         help=(
             "Restrict plotted/PCA trajectory steps to the prefix where the selected "
@@ -144,14 +146,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def count_execution_steps(graph_data: dict, extra_steps: int) -> int:
-    num_bf_steps = len(graph_data["bf_distance_targets"])
-    num_bfs_steps = len(graph_data["bfs_state_targets"])
-    num_prim_steps = len(graph_data["prim_key_targets"])
-    base_steps = max(num_bf_steps, num_bfs_steps, num_prim_steps) - 1
-    if base_steps < 0:
-        base_steps = 0
-    return base_steps + max(extra_steps, 0)
+def count_execution_steps(
+    graph_data: dict,
+    extra_steps: int,
+    algorithm_order: tuple[str, ...],
+) -> int:
+    return shared_count_execution_steps(graph_data, extra_steps, algorithm_order)
 
 
 def choose_step_count(step_counts: List[int], policy: str, fixed_steps: int | None) -> int:
@@ -176,11 +176,22 @@ def choose_step_count(step_counts: List[int], policy: str, fixed_steps: int | No
     raise ValueError(f"Unknown step policy: {policy}")
 
 
-def execution_window_steps(selected_graphs: List[dict], execution_window: str) -> int | None:
+def execution_window_steps(
+    selected_graphs: List[dict],
+    execution_window: str,
+    algorithm_order: tuple[str, ...],
+) -> int | None:
     if execution_window == "all":
         return None
+    if execution_window not in algorithm_order:
+        raise ValueError(
+            f"Execution window '{execution_window}' is unavailable for algorithms {algorithm_order}."
+        )
 
-    active_steps = [execution_step_counts(graph)[execution_window] for graph in selected_graphs]
+    active_steps = [
+        execution_step_counts(graph, algorithm_order)[execution_window]
+        for graph in selected_graphs
+    ]
     if not active_steps:
         return None
 
@@ -220,74 +231,44 @@ def collect_graph_trajectory(
     previous_step_hidden_states = mx.zeros([num_nodes, model.processor_embed_dim])
     step_embeddings: List[np.ndarray] = []
 
-    for (
-        true_bfs_state,
-        true_distance_bf,
-        true_prim_state,
-        true_prim_key,
-    ) in iter_execution_inputs(graph_data, extra_steps):
-        node_algo_features = build_node_algo_features(
-            true_bfs_state,
-            true_distance_bf,
-            true_prim_state,
-            true_prim_key,
-        )
+    for feature_values in iter_execution_feature_values(
+        graph_data, extra_steps, model.algorithms
+    ):
+        node_algo_features = build_node_algo_features(feature_values, model.algorithms)
         input_embeddings = mx.concatenate(
             [previous_step_hidden_states, node_algo_features], axis=1
         )
         if latent_kind == "processed":
-            processed_embeddings, _, _, _, _ = compute_forward_latents(
+            processed_embeddings, _, _ = compute_forward_latents(
                 model, input_embeddings, graph_data["edge_matrix"]
             )
             latent = processed_embeddings
         elif latent_kind == "encoded":
-            processed_embeddings, encoded, _, _, _ = compute_forward_latents(
+            processed_embeddings, encoded, _ = compute_forward_latents(
                 model, input_embeddings, graph_data["edge_matrix"]
             )
             latent = encoded
-        elif latent_kind == "encoded_bfs":
-            processed_embeddings, _, bfs_encoded, _, _ = compute_forward_latents(
+        elif latent_kind.startswith("encoded_"):
+            processed_embeddings, _, encoded_by_algorithm = compute_forward_latents(
                 model, input_embeddings, graph_data["edge_matrix"]
             )
-            latent = bfs_encoded
-        elif latent_kind == "encoded_bf":
-            processed_embeddings, _, _, bf_encoded, _ = compute_forward_latents(
-                model, input_embeddings, graph_data["edge_matrix"]
-            )
-            latent = bf_encoded
-        elif latent_kind == "encoded_prim":
-            processed_embeddings, _, _, _, prim_encoded = compute_forward_latents(
-                model, input_embeddings, graph_data["edge_matrix"]
-            )
-            latent = prim_encoded
-        elif latent_kind == "processed_zero_bfs_input":
-            processed_embeddings, _, _, _, _ = compute_forward_latents(
+            algorithm = latent_kind[len("encoded_") :]
+            if algorithm not in encoded_by_algorithm:
+                raise ValueError(
+                    f"Latent '{latent_kind}' is unavailable for algorithms {model.algorithms}."
+                )
+            latent = encoded_by_algorithm[algorithm]
+        elif latent_kind.startswith("processed_zero_") and latent_kind.endswith("_input"):
+            algorithm = latent_kind[len("processed_zero_") : -len("_input")]
+            if algorithm not in model.algorithms:
+                raise ValueError(
+                    f"Latent '{latent_kind}' is unavailable for algorithms {model.algorithms}."
+                )
+            processed_embeddings, _, _ = compute_forward_latents(
                 model,
                 input_embeddings,
                 graph_data["edge_matrix"],
-                zero_bfs_input=True,
-                zero_bf_input=False,
-                zero_prim_input=False,
-            )
-            latent = processed_embeddings
-        elif latent_kind == "processed_zero_bf_input":
-            processed_embeddings, _, _, _, _ = compute_forward_latents(
-                model,
-                input_embeddings,
-                graph_data["edge_matrix"],
-                zero_bfs_input=False,
-                zero_bf_input=True,
-                zero_prim_input=False,
-            )
-            latent = processed_embeddings
-        elif latent_kind == "processed_zero_prim_input":
-            processed_embeddings, _, _, _, _ = compute_forward_latents(
-                model,
-                input_embeddings,
-                graph_data["edge_matrix"],
-                zero_bfs_input=False,
-                zero_bf_input=False,
-                zero_prim_input=True,
+                zero_input_algorithms=(algorithm,),
             )
             latent = processed_embeddings
         else:
@@ -380,14 +361,16 @@ def algorithm_reference_chain(
     step_indices: np.ndarray,
     selected_graphs: List[dict],
     num_steps: int,
+    algorithm_order: tuple[str, ...],
 ) -> List[dict]:
     references: List[dict] = []
     if projected.ndim != 2:
         raise ValueError("Projected PCA coordinates must be a 2D array.")
 
-    for algorithm in ALGORITHMS:
+    for algorithm in algorithm_order:
         end_steps = [
-            float(execution_step_counts(graph)[algorithm]) for graph in selected_graphs
+            float(execution_step_counts(graph, algorithm_order)[algorithm])
+            for graph in selected_graphs
         ]
         if not end_steps:
             continue
@@ -1156,8 +1139,11 @@ def main() -> None:
     if args.pca_components <= 0:
         raise ValueError("--pca-components must be positive.")
     config, run_dir = resolve_config(args.config, args.run_dir)
+    algorithm_order = normalize_algorithm_order(config.model.algorithms)
 
-    dataset_path = resolve_dataset_path(args.dataset, args.split, config)
+    dataset_path = resolve_dataset_path(
+        args.dataset, args.split, config, algorithm_order=algorithm_order
+    )
     if not dataset_path.exists():
         raise FileNotFoundError(f"Dataset not found: {dataset_path}")
 
@@ -1165,7 +1151,7 @@ def main() -> None:
     model, step = load_model_from_checkpoint(config, checkpoint_path, run_dir)
     model.eval()
 
-    dataset = load_dataset(dataset_path)
+    dataset = load_analysis_dataset(dataset_path, algorithm_order)
     if args.graph_index is not None:
         if args.graph_index < 0 or args.graph_index >= len(dataset):
             raise IndexError(
@@ -1173,13 +1159,18 @@ def main() -> None:
             )
         selected_indices = [args.graph_index]
         selected_graphs = [dataset[args.graph_index]]
-        target_steps = count_execution_steps(selected_graphs[0], args.extra_steps)
+        target_steps = count_execution_steps(
+            selected_graphs[0], args.extra_steps, algorithm_order
+        )
     else:
         graphs = dataset
         if args.max_graphs is not None:
             graphs = dataset[: args.max_graphs]
 
-        step_counts = [count_execution_steps(graph, args.extra_steps) for graph in graphs]
+        step_counts = [
+            count_execution_steps(graph, args.extra_steps, algorithm_order)
+            for graph in graphs
+        ]
         target_steps = choose_step_count(step_counts, args.step_policy, args.steps)
         selected_indices = [
             index for index, steps in enumerate(step_counts) if steps == target_steps
@@ -1206,7 +1197,9 @@ def main() -> None:
 
     trajectories_tensor = np.stack(trajectories, axis=0)
     raw_num_steps = int(trajectories_tensor.shape[1])
-    window_steps = execution_window_steps(selected_graphs, args.execution_window)
+    window_steps = execution_window_steps(
+        selected_graphs, args.execution_window, algorithm_order
+    )
     if window_steps is not None:
         trajectories_tensor = trajectories_tensor[:, :window_steps, :]
     num_graphs, num_steps, latent_dim = trajectories_tensor.shape
@@ -1253,9 +1246,22 @@ def main() -> None:
         Path(args.output_dir)
         if args.output_dir
         else (
-            run_dir / "analysis" / "embedding_trajectories"
+            run_dir
+            / "analysis"
+            / (
+                f"embedding_trajectories_{Path(args.dataset).stem}"
+                if run_dir is not None and args.dataset is not None
+                else "embedding_trajectories"
+            )
             if run_dir
-            else Path("analysis/embedding_trajectories")
+            else Path(
+                "analysis"
+            )
+            / (
+                f"embedding_trajectories_{Path(args.dataset).stem}"
+                if args.dataset is not None
+                else "embedding_trajectories"
+            )
         )
     )
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1275,6 +1281,7 @@ def main() -> None:
     metadata = {
         "config_name": config.name,
         "checkpoint_step": step,
+        "algorithms": list(algorithm_order),
         "latent": args.latent,
         "node_agg": args.node_agg,
         "step_policy": args.step_policy,
@@ -1373,6 +1380,7 @@ def main() -> None:
                 step_indices=step_indices,
                 selected_graphs=selected_graphs,
                 num_steps=num_steps,
+                algorithm_order=algorithm_order,
             )
             metadata["step_pca_algorithm_reference_chain"] = algorithm_reference_points
             completion_probe_projected = np.empty((0, used_components), dtype=np.float32)

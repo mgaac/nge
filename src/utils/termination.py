@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Sequence
 
 import mlx.core as mx
+
+from src.utils.task_specs import DEFAULT_ALGORITHMS, supported_algorithms
 
 
 def resolve_termination_settings(cfg: Any | None) -> Dict[str, Any]:
@@ -50,21 +52,16 @@ def get_distance_latent(
         if "encoded" not in aux:
             raise ValueError("Encoded latents requested but not available.")
         return aux["encoded"]
-    if latent_key == "encoded_bfs":
-        if "bfs_encoded" not in aux:
-            raise ValueError("BFS encoded latents requested but not available.")
-        return aux["bfs_encoded"]
-    if latent_key == "encoded_bf":
-        if "bf_encoded" not in aux:
-            raise ValueError("BF encoded latents requested but not available.")
-        return aux["bf_encoded"]
-    if latent_key == "encoded_prim":
-        if "prim_encoded" not in aux:
-            raise ValueError("Prim encoded latents requested but not available.")
-        return aux["prim_encoded"]
+    if latent_key.startswith("encoded_"):
+        algorithm = latent_key[len("encoded_") :]
+        if algorithm in supported_algorithms():
+            aux_key = f"{algorithm}_encoded"
+            if aux_key not in aux:
+                raise ValueError(f"{algorithm} encoded latents requested but not available.")
+            return aux[aux_key]
     raise ValueError(
         "Unknown termination_distance_latent. "
-        "Expected one of: processed, encoded, encoded_bfs, encoded_bf, encoded_prim. "
+        "Expected one of: processed, encoded, or encoded_<algorithm>. "
         f"Got: {latent_key}"
     )
 
@@ -89,9 +86,11 @@ def compute_distance_termination_logits(
     settings: Dict[str, Any],
     prev_latent: mx.array | None,
     current_latent: mx.array,
+    algorithms: Sequence[str] | None = None,
 ) -> Dict[str, mx.array]:
     prev_latent = init_previous_latent(prev_latent, current_latent)
     distance = compute_latent_distance(prev_latent, current_latent, settings["distance_type"])
     threshold = mx.array(settings["distance_threshold"])
     logit = threshold - distance
-    return {"bf": logit, "bfs": logit, "prim": logit}
+    algorithms = tuple(algorithms) if algorithms is not None else DEFAULT_ALGORITHMS
+    return {algorithm: logit for algorithm in algorithms}

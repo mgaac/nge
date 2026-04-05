@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import matplotlib
 
@@ -13,22 +13,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-ALGORITHMS = ("bf", "bfs", "prim")
-SELECT_TASK_CHOICES = ("all", *ALGORITHMS)
-
-SEQUENCE_KEYS = {
-    "bf": "bf_distance_targets",
-    "bfs": "bfs_state_targets",
-    "prim": "prim_key_targets",
-}
-
-
-def resolve_selected_tasks(tasks_arg: str) -> Dict[str, bool]:
-    if tasks_arg == "all":
-        return {algorithm: True for algorithm in ALGORITHMS}
-    if tasks_arg not in ALGORITHMS:
-        raise ValueError(f"Unknown tasks selection: {tasks_arg}")
-    return {algorithm: algorithm == tasks_arg for algorithm in ALGORITHMS}
+from src.utils.task_specs import (
+    SELECT_TASK_CHOICES,
+    algorithm_display_name,
+    normalize_algorithm_order,
+    primary_target_key,
+    resolve_selected_tasks,
+    supported_algorithms,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,18 +39,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--trajectories-dir",
         type=str,
+        action="append",
         default=None,
         help=(
             "Directory containing trajectories.npz + metadata.json from "
-            "src.analysis.embedding_trajectories. Defaults to "
-            "<run-dir>/analysis/embedding_trajectories."
+            "src.analysis.embedding_trajectories. Repeat this flag to merge multiple "
+            "artifacts. If omitted, the tool scans <run-dir>/analysis for "
+            "embedding_trajectories* directories."
         ),
     )
     parser.add_argument(
         "--dataset",
         type=str,
         default=None,
-        help="Override dataset path (.npz). Defaults to metadata dataset.",
+        help=(
+            "Override dataset path (.npz). Only valid when using a single "
+            "embedding_trajectories artifact."
+        ),
     )
     parser.add_argument(
         "--tasks",
@@ -101,17 +98,40 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def resolve_trajectories_dir(args: argparse.Namespace) -> Path:
+def resolve_trajectories_dirs(args: argparse.Namespace) -> list[Path]:
     if args.trajectories_dir is not None:
-        return Path(args.trajectories_dir)
-    if args.run_dir is not None:
-        return Path(args.run_dir) / "analysis" / "embedding_trajectories"
-    raise ValueError("Provide --trajectories-dir or --run-dir.")
+        return [Path(path) for path in args.trajectories_dir]
+    if args.run_dir is None:
+        raise ValueError("Provide --trajectories-dir or --run-dir.")
+
+    analysis_dir = Path(args.run_dir) / "analysis"
+    candidates = []
+    for path in sorted(analysis_dir.glob("embedding_trajectories*")):
+        if not path.is_dir():
+            continue
+        metadata_path = path / "metadata.json"
+        trajectories_path = path / "trajectories.npz"
+        if not metadata_path.exists() or not trajectories_path.exists():
+            continue
+        metadata = json.loads(metadata_path.read_text())
+        if metadata.get("execution_window", "all") != "all":
+            continue
+        candidates.append(path)
+    if not candidates:
+        raise FileNotFoundError(
+            f"No embedding_trajectories artifacts found under: {analysis_dir}"
+        )
+    return candidates
 
 
-def execution_step_counts_raw(dataset: np.lib.npyio.NpzFile, graph_index: int) -> Dict[str, int]:
+def execution_step_counts_raw(
+    dataset: np.lib.npyio.NpzFile,
+    graph_index: int,
+    algorithm_order: tuple[str, ...],
+) -> Dict[str, int]:
     counts: Dict[str, int] = {}
-    for algorithm, key in SEQUENCE_KEYS.items():
+    for algorithm in algorithm_order:
+        key = primary_target_key(algorithm)
         array_key = f"{key}_{graph_index}"
         if array_key not in dataset:
             counts[algorithm] = 0
@@ -139,6 +159,51 @@ def load_trajectory_source(
     dataset_payload = np.load(dataset_path, allow_pickle=True)
     metadata["dataset"] = str(dataset_path)
     return metadata, trajectories_payload, dataset_payload
+
+
+def load_trajectory_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
+    trajectories_dirs = resolve_trajectories_dirs(args)
+    if args.dataset is not None and len(trajectories_dirs) > 1:
+        raise ValueError(
+            "--dataset can only be used with a single embedding_trajectories artifact."
+        )
+
+    sources: list[dict[str, Any]] = []
+    for trajectories_dir in trajectories_dirs:
+        metadata, trajectories_payload, dataset_payload = load_trajectory_source(
+            trajectories_dir=trajectories_dir,
+            dataset_override=args.dataset,
+        )
+        algorithm_order = normalize_algorithm_order(metadata.get("algorithms"))
+        selected_graph_indices = np.asarray(
+            trajectories_payload["selected_graph_indices"], dtype=np.int32
+        )
+        trajectories = np.asarray(trajectories_payload["trajectories"], dtype=np.float32)
+        terminal_probes = aligned_completion_probes(trajectories_payload, selected_graph_indices)
+        extended_trajectories = extend_trajectories_with_terminal_probe(
+            trajectories, terminal_probes
+        )
+        sources.append(
+            {
+                "dir": trajectories_dir,
+                "metadata": metadata,
+                "trajectories_payload": trajectories_payload,
+                "dataset_payload": dataset_payload,
+                "algorithm_order": algorithm_order,
+                "selected_graph_indices": selected_graph_indices,
+                "extended_trajectories": extended_trajectories,
+                "terminal_probes": terminal_probes,
+            }
+        )
+
+    latent_values = {str(source["metadata"].get("latent")) for source in sources}
+    node_agg_values = {str(source["metadata"].get("node_agg")) for source in sources}
+    if len(latent_values) > 1 or len(node_agg_values) > 1:
+        raise ValueError(
+            "All merged embedding_trajectories artifacts must use the same latent and node_agg. "
+            f"Found latents={sorted(latent_values)}, node_aggs={sorted(node_agg_values)}."
+        )
+    return sources
 
 
 def aligned_completion_probes(
@@ -352,38 +417,43 @@ def explained_variance_ratio_in_subspace(data: np.ndarray, basis: np.ndarray) ->
 
 
 def build_algorithm_delta_sets(
-    trajectories: np.ndarray,
-    selected_graph_indices: np.ndarray,
-    dataset_payload: np.lib.npyio.NpzFile,
+    sources: list[dict[str, Any]],
     selected_tasks: Dict[str, bool],
     membership_mode: str,
+    algorithm_order: tuple[str, ...],
 ) -> Dict[str, dict]:
     algorithm_sets: Dict[str, dict] = {}
-    deltas = np.diff(trajectories.astype(np.float64), axis=1)
-    total_steps = int(deltas.shape[1])
-
-    for algorithm in ALGORITHMS:
+    for algorithm in algorithm_order:
         if not selected_tasks.get(algorithm, False):
             continue
         vectors: List[np.ndarray] = []
         graph_labels: List[int] = []
         step_labels: List[int] = []
-
-        for graph_row, graph_index in enumerate(selected_graph_indices.tolist()):
-            step_counts = execution_step_counts_raw(dataset_payload, int(graph_index))
-            for step in range(total_steps):
-                is_active = step < step_counts[algorithm]
-                if membership_mode == "exclusive":
-                    is_active = is_active and all(
-                        step >= step_counts[other]
-                        for other in ALGORITHMS
-                        if other != algorithm
-                    )
-                if not is_active:
-                    continue
-                vectors.append(deltas[graph_row, step])
-                graph_labels.append(int(graph_index))
-                step_labels.append(int(step))
+        graph_offset = 0
+        for source in sources:
+            source_algorithm_order = tuple(source["algorithm_order"])
+            source_deltas = np.diff(source["extended_trajectories"].astype(np.float64), axis=1)
+            total_steps = int(source_deltas.shape[1])
+            selected_graph_indices = np.asarray(source["selected_graph_indices"], dtype=np.int32)
+            dataset_payload = source["dataset_payload"]
+            for graph_row, graph_index in enumerate(selected_graph_indices.tolist()):
+                step_counts = execution_step_counts_raw(
+                    dataset_payload, int(graph_index), source_algorithm_order
+                )
+                for step in range(total_steps):
+                    is_active = step < step_counts.get(algorithm, 0)
+                    if membership_mode == "exclusive":
+                        is_active = is_active and all(
+                            step >= step_counts.get(other, 0)
+                            for other in source_algorithm_order
+                            if other != algorithm
+                        )
+                    if not is_active:
+                        continue
+                    vectors.append(source_deltas[graph_row, step])
+                    graph_labels.append(graph_offset + int(graph_index))
+                    step_labels.append(int(step))
+            graph_offset += int(selected_graph_indices.shape[0]) + 100000
 
         if not vectors:
             continue
@@ -396,58 +466,76 @@ def build_algorithm_delta_sets(
 
 
 def inactive_vectors_for_algorithm(
-    deltas: np.ndarray,
-    selected_graph_indices: np.ndarray,
-    dataset_payload: np.lib.npyio.NpzFile,
+    sources: list[dict[str, Any]],
     algorithm: str,
     membership_mode: str,
+    algorithm_order: tuple[str, ...],
 ) -> np.ndarray:
     vectors: List[np.ndarray] = []
-    total_steps = int(deltas.shape[1])
-    for graph_row, graph_index in enumerate(selected_graph_indices.tolist()):
-        step_counts = execution_step_counts_raw(dataset_payload, int(graph_index))
-        for step in range(total_steps):
-            is_active = step < step_counts[algorithm]
-            if membership_mode == "exclusive":
-                is_active = is_active and all(
-                    step >= step_counts[other]
-                    for other in ALGORITHMS
-                    if other != algorithm
-                )
-            if is_active:
-                continue
-            vectors.append(deltas[graph_row, step])
+    for source in sources:
+        source_algorithm_order = tuple(source["algorithm_order"])
+        source_deltas = np.diff(source["extended_trajectories"].astype(np.float64), axis=1)
+        total_steps = int(source_deltas.shape[1])
+        selected_graph_indices = np.asarray(source["selected_graph_indices"], dtype=np.int32)
+        dataset_payload = source["dataset_payload"]
+        for graph_row, graph_index in enumerate(selected_graph_indices.tolist()):
+            step_counts = execution_step_counts_raw(
+                dataset_payload, int(graph_index), source_algorithm_order
+            )
+            for step in range(total_steps):
+                is_active = step < step_counts.get(algorithm, 0)
+                if membership_mode == "exclusive":
+                    is_active = is_active and all(
+                        step >= step_counts.get(other, 0)
+                        for other in source_algorithm_order
+                        if other != algorithm
+                    )
+                if is_active:
+                    continue
+                vectors.append(source_deltas[graph_row, step])
     if not vectors:
-        return np.empty((0, deltas.shape[2]), dtype=np.float32)
+        latent_dim = int(sources[0]["extended_trajectories"].shape[2])
+        return np.empty((0, latent_dim), dtype=np.float32)
     return np.stack(vectors, axis=0).astype(np.float32, copy=False)
 
 
 def main() -> None:
     args = parse_args()
-    trajectories_dir = resolve_trajectories_dir(args)
-    metadata, trajectories_payload, dataset_payload = load_trajectory_source(
-        trajectories_dir=trajectories_dir,
-        dataset_override=args.dataset,
-    )
-
-    selected_tasks = resolve_selected_tasks(args.tasks)
-    selected_graph_indices = np.asarray(
-        trajectories_payload["selected_graph_indices"], dtype=np.int32
-    )
-    trajectories = np.asarray(trajectories_payload["trajectories"], dtype=np.float32)
-    terminal_probes = aligned_completion_probes(trajectories_payload, selected_graph_indices)
-    extended_trajectories = extend_trajectories_with_terminal_probe(trajectories, terminal_probes)
-    deltas = np.diff(extended_trajectories.astype(np.float64), axis=1)
+    sources = load_trajectory_sources(args)
+    source_dirs = [Path(source["dir"]) for source in sources]
+    present_algorithms = [
+        algorithm
+        for algorithm in supported_algorithms()
+        if any(algorithm in source["algorithm_order"] for source in sources)
+    ]
+    algorithm_order = normalize_algorithm_order(present_algorithms)
+    selected_tasks = resolve_selected_tasks(args.tasks, algorithm_order)
+    requested_algorithms = [
+        algorithm for algorithm in algorithm_order if selected_tasks.get(algorithm, False)
+    ]
 
     algorithm_sets = build_algorithm_delta_sets(
-        trajectories=extended_trajectories,
-        selected_graph_indices=selected_graph_indices,
-        dataset_payload=dataset_payload,
+        sources=sources,
         selected_tasks=selected_tasks,
         membership_mode=args.membership_mode,
+        algorithm_order=algorithm_order,
     )
+    omitted_algorithms = [
+        algorithm for algorithm in requested_algorithms if algorithm not in algorithm_sets
+    ]
     if not algorithm_sets:
-        raise ValueError("No algorithm deltas matched the requested selection.")
+        raise ValueError(
+            "No algorithm deltas matched the requested selection. "
+            "This usually means the embedding_trajectories artifact was generated on a "
+            "dataset that does not contain the requested algorithms. "
+            f"Requested: {requested_algorithms}. "
+            f"Sources: {[str(path) for path in source_dirs]}."
+        )
+    if omitted_algorithms:
+        print(
+            "Skipping algorithms with no active deltas in the source trajectories: "
+            + ", ".join(omitted_algorithms)
+        )
 
     output_dir = (
         Path(args.output_dir)
@@ -467,7 +555,7 @@ def main() -> None:
     fitted_payloads: Dict[str, dict] = {}
     fitted_components = []
 
-    for algorithm in ALGORITHMS:
+    for algorithm in algorithm_order:
         if algorithm not in algorithm_sets:
             continue
         entry = algorithm_sets[algorithm]
@@ -477,14 +565,14 @@ def main() -> None:
         )
         fitted_payloads[algorithm] = payload
         fitted_components.append(payload["components"])
-        labels.append(algorithm.upper())
+        labels.append(algorithm_display_name(algorithm))
 
         np.savez(output_dir / f"{algorithm}_delta_pca.npz", **payload)
         plot_algorithm_delta_pca(
             projected=payload["projected"],
             step_indices=entry["step_labels"],
             output_path=output_dir / f"{algorithm}_delta_pca.png",
-            title=f"{algorithm.upper()} delta PCA [{args.membership_mode}]",
+            title=f"{algorithm_display_name(algorithm)} delta PCA [{args.membership_mode}]",
             explained_ratio=payload["explained_variance_ratio"],
         )
 
@@ -494,11 +582,10 @@ def main() -> None:
             basis,
         )
         inactive_vectors = inactive_vectors_for_algorithm(
-            deltas=deltas,
-            selected_graph_indices=selected_graph_indices,
-            dataset_payload=dataset_payload,
+            sources=sources,
             algorithm=algorithm,
             membership_mode=args.membership_mode,
+            algorithm_order=algorithm_order,
         )
         inactive_score = explained_variance_ratio_in_subspace(
             inactive_vectors.astype(np.float64),
@@ -530,11 +617,12 @@ def main() -> None:
     explained_matrix = np.zeros((len(labels), len(labels)), dtype=np.float64)
     pairwise_details: Dict[str, dict] = {}
 
-    for row, basis_algorithm in enumerate([label.lower() for label in labels]):
+    active_algorithms = [algorithm for algorithm in algorithm_order if algorithm in algorithm_sets]
+    for row, basis_algorithm in enumerate(active_algorithms):
         basis = np.asarray(fitted_payloads[basis_algorithm]["components"], dtype=np.float64)[
             :common_subspace_dim
         ]
-        for col, eval_algorithm in enumerate([label.lower() for label in labels]):
+        for col, eval_algorithm in enumerate(active_algorithms):
             eval_vectors = algorithm_sets[eval_algorithm]["vectors"].astype(np.float64)
             explained_matrix[row, col] = explained_variance_ratio_in_subspace(
                 eval_vectors,
@@ -577,14 +665,22 @@ def main() -> None:
     )
 
     summary = {
-        "source_trajectories_dir": str(trajectories_dir),
-        "dataset": metadata["dataset"],
-        "latent": metadata.get("latent"),
-        "node_agg": metadata.get("node_agg"),
-        "num_graphs": int(selected_graph_indices.shape[0]),
-        "uses_terminal_probe_extension": terminal_probes is not None,
+        "source_trajectories_dirs": [str(path) for path in source_dirs],
+        "source_datasets": [source["metadata"]["dataset"] for source in sources],
+        "algorithms": list(algorithm_order),
+        "latent": sources[0]["metadata"].get("latent"),
+        "node_agg": sources[0]["metadata"].get("node_agg"),
+        "num_graphs": int(
+            sum(int(np.asarray(source["selected_graph_indices"]).shape[0]) for source in sources)
+        ),
+        "uses_terminal_probe_extension": any(
+            source["terminal_probes"] is not None for source in sources
+        ),
         "membership_mode": args.membership_mode,
         "tasks": args.tasks,
+        "requested_algorithms": requested_algorithms,
+        "omitted_algorithms": omitted_algorithms,
+        "num_sources": len(sources),
         "labels": labels,
         "common_subspace_dim": int(common_subspace_dim),
         "algorithm_summaries": algorithm_summaries,

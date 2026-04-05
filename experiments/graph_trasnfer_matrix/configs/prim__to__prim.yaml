@@ -1,0 +1,44 @@
+name: graph-transfer-matrix__prim__to__prim
+model:
+  embed_dim: 32
+  residual_connections: true
+  agg_fn: MAX
+  num_mp_layers: 2
+  dropout: 0.1
+  algorithms:
+  - prim
+  termination_mode: distance
+  termination_distance_latent: processed
+  termination_distance: l2
+  termination_distance_threshold: 12
+  termination_distance_signal: true
+training:
+  epochs: 200
+  learning_rate: 1.0e-05
+  max_grad_norm: 1.0
+  batch_size: 10
+  eval_interval: 10
+  seed: 42
+  tasks: prim
+  init_checkpoint: runs/iso/20260319-100544_647125b-dirty1e7a69fa_prim/checkpoints/step_00000200
+  init_checkpoint_modules:
+  - processor
+  freeze_modules:
+  - processor
+  reset_modules:
+  - prim_encoder
+  - prim_decoder
+  - prim_termination
+data:
+  train_path: data/train_dataset.npz
+  val_path: data/val_dataset.npz
+  test_path: data/test_dataset.npz
+  task_paths: null
+logging:
+  use_wandb: true
+  wandb_project: nge-transfer-matrix
+  wandb_entity: ''
+  log_interval: 1
+  save_checkpoints: true
+  checkpoint_interval: 50
+  checkpoint_keep_last: 10

@@ -9,7 +9,13 @@ import mlx.nn as nn
 
 from enum import Enum
 
-from src.utils.task_specs import INPUT_FEATURE_DIM
+from src.utils.task_specs import (
+    DEFAULT_ALGORITHMS,
+    algorithm_family,
+    input_feature_dim,
+    normalize_algorithm_order,
+    processor_algorithm_order,
+)
 
 
 class AggregationFn(Enum):
@@ -130,16 +136,16 @@ class MPNN(nn.Module):
         return node_embeddings
 
 
-class BFSDecoder(nn.Module):
-    """Decoder for BFS state predictions."""
+class StateMaskDecoder(nn.Module):
+    """Decoder for node-wise binary state predictions."""
 
     def __init__(self, embed_dim: int, processor_embed_dim: int):
-        super(BFSDecoder, self).__init__()
+        super().__init__()
 
         self.embed_dim = embed_dim
         self.processor_embed_dim = processor_embed_dim
         self.input_dim = processor_embed_dim + embed_dim
-        self.bfs_state_outputs = nn.Linear(self.input_dim, 1, bias=False)
+        self.state_outputs = nn.Linear(self.input_dim, 1, bias=False)
         self.layer_norm = nn.LayerNorm(self.input_dim)
 
     def __call__(self, data):
@@ -148,9 +154,9 @@ class BFSDecoder(nn.Module):
         input = mx.concatenate([processed_embeddings, encoded_embeddings], axis=1)
         input = self.layer_norm(input)
 
-        bfs_state_predictions = self.bfs_state_outputs(input).squeeze()
+        state_predictions = self.state_outputs(input).squeeze()
 
-        return bfs_state_predictions
+        return state_predictions
 
 
 class EdgePointerHead(nn.Module):
@@ -207,11 +213,11 @@ class EdgePointerHead(nn.Module):
         return predecessor_predictions
 
 
-class BFDecoder(nn.Module):
-    """Decoder for Bellman-Ford distance and predecessor predictions."""
+class ShortestPathDecoder(nn.Module):
+    """Decoder for distance and predecessor predictions."""
 
     def __init__(self, embed_dim: int, processor_embed_dim: int):
-        super(BFDecoder, self).__init__()
+        super().__init__()
 
         self.embed_dim = embed_dim
         self.processor_embed_dim = processor_embed_dim
@@ -229,13 +235,13 @@ class BFDecoder(nn.Module):
             [processed_embeddings, encoded_embeddings], axis=1
         )
         joint_embeddings = self.distance_ln(joint_embeddings)
-        bf_distance_predictions = self.distance_head(joint_embeddings).squeeze()
+        distance_predictions = self.distance_head(joint_embeddings).squeeze()
 
-        bf_predecessor_predictions = self.pointer_head(
+        predecessor_predictions = self.pointer_head(
             encoded_embeddings, processed_embeddings, connection_matrix
         )
 
-        return bf_distance_predictions, bf_predecessor_predictions
+        return distance_predictions, predecessor_predictions
 
 
 class PrimDecoder(nn.Module):
@@ -284,25 +290,36 @@ class NGE(nn.Module):
         agg_fn: Enum,
         num_mp_layers: int,
         dropout: float = 0.0,
+        algorithms: tuple[str, ...] | None = None,
     ):
         super(NGE, self).__init__()
 
+        self.algorithms = normalize_algorithm_order(algorithms)
+        self.processor_algorithms = processor_algorithm_order(self.algorithms)
         self.embed_dim = embed_dim
-        self.processor_embed_dim = 3 * embed_dim
-        self.input_dim = self.processor_embed_dim + INPUT_FEATURE_DIM
+        self.processor_embed_dim = len(self.algorithms) * embed_dim
+        self.input_dim = self.processor_embed_dim + input_feature_dim(self.algorithms)
         self.ln = nn.LayerNorm(self.processor_embed_dim)
 
-        self.bfs_encoder = nn.Linear(self.input_dim, embed_dim)
-        self.bf_encoder = nn.Linear(self.input_dim, embed_dim)
-        self.prim_encoder = nn.Linear(self.input_dim, embed_dim)
+        for algorithm in self.algorithms:
+            encoder = nn.Linear(self.input_dim, embed_dim)
+            setattr(self, f"{algorithm}_encoder", encoder)
 
-        self.bfs_decoder = BFSDecoder(embed_dim, self.processor_embed_dim)
-        self.bf_decoder = BFDecoder(embed_dim, self.processor_embed_dim)
-        self.prim_decoder = PrimDecoder(embed_dim, self.processor_embed_dim)
-
-        self.bfs_termination = nn.Linear(self.processor_embed_dim, 1, bias=True)
-        self.bf_termination = nn.Linear(self.processor_embed_dim, 1, bias=True)
-        self.prim_termination = nn.Linear(self.processor_embed_dim, 1, bias=True)
+            family = algorithm_family(algorithm)
+            if family == "state_mask":
+                decoder = StateMaskDecoder(embed_dim, self.processor_embed_dim)
+            elif family == "shortest_path":
+                decoder = ShortestPathDecoder(embed_dim, self.processor_embed_dim)
+            elif family == "mst":
+                decoder = PrimDecoder(embed_dim, self.processor_embed_dim)
+            else:
+                raise ValueError(f"Unsupported algorithm family: {family}")
+            setattr(self, f"{algorithm}_decoder", decoder)
+            setattr(
+                self,
+                f"{algorithm}_termination",
+                nn.Linear(self.processor_embed_dim, 1, bias=True),
+            )
 
         self.processor = MPNN(
             self.processor_embed_dim,
@@ -315,52 +332,66 @@ class NGE(nn.Module):
     def __call__(self, data, return_latents: bool = False):
         node_embeddings, connection_matrix = data
 
-        bfs_encoded_embeddings = self.bfs_encoder(node_embeddings)
-        bf_encoded_embeddings = self.bf_encoder(node_embeddings)
-        prim_encoded_embeddings = self.prim_encoder(node_embeddings)
+        encoded_by_algorithm = {}
+        for algorithm in self.algorithms:
+            encoder = getattr(self, f"{algorithm}_encoder")
+            encoded_by_algorithm[algorithm] = encoder(node_embeddings)
 
         encoded_embeddings = mx.concatenate(
-            [bfs_encoded_embeddings, bf_encoded_embeddings, prim_encoded_embeddings], axis=1
+            [encoded_by_algorithm[algorithm] for algorithm in self.processor_algorithms],
+            axis=1,
         )
         encoded_embeddings = self.ln(encoded_embeddings)
 
         processed_embeddings = self.processor((encoded_embeddings, connection_matrix))
 
-        bfs_output = self.bfs_decoder((processed_embeddings, bfs_encoded_embeddings))
-        bf_output = self.bf_decoder(
-            (processed_embeddings, bf_encoded_embeddings, connection_matrix)
-        )
-        prim_output = self.prim_decoder(
-            (processed_embeddings, prim_encoded_embeddings, connection_matrix)
-        )
+        algorithm_outputs = {}
+        for algorithm in self.algorithms:
+            family = algorithm_family(algorithm)
+            decoder = getattr(self, f"{algorithm}_decoder")
+            encoded = encoded_by_algorithm[algorithm]
+            if family == "state_mask":
+                algorithm_outputs[algorithm] = decoder((processed_embeddings, encoded))
+            else:
+                algorithm_outputs[algorithm] = decoder(
+                    (processed_embeddings, encoded, connection_matrix)
+                )
 
         avg_embeddings = mx.mean(processed_embeddings, axis=0)
 
-        bfs_termination_prob = self.bfs_termination(avg_embeddings).squeeze()
-        bf_termination_prob = self.bf_termination(avg_embeddings).squeeze()
-        prim_termination_prob = self.prim_termination(avg_embeddings).squeeze()
-
-        termination_probs = {
-            "bfs": bfs_termination_prob,
-            "bf": bf_termination_prob,
-            "prim": prim_termination_prob,
-        }
+        termination_probs = {}
+        for algorithm in self.algorithms:
+            termination_head = getattr(self, f"{algorithm}_termination")
+            termination_probs[algorithm] = termination_head(avg_embeddings).squeeze()
 
         if return_latents:
             aux = {
-                "bfs_encoded": bfs_encoded_embeddings,
-                "bf_encoded": bf_encoded_embeddings,
-                "prim_encoded": prim_encoded_embeddings,
                 "encoded": encoded_embeddings,
                 "avg_processed": avg_embeddings,
             }
+            aux.update(
+                {
+                    f"{algorithm}_encoded": encoded_by_algorithm[algorithm]
+                    for algorithm in self.algorithms
+                }
+            )
+            if self.algorithms == DEFAULT_ALGORITHMS:
+                return (
+                    algorithm_outputs["bfs"],
+                    algorithm_outputs["bf"],
+                    algorithm_outputs["prim"],
+                    termination_probs,
+                    processed_embeddings,
+                    aux,
+                )
+            return algorithm_outputs, termination_probs, processed_embeddings, aux
+
+        if self.algorithms == DEFAULT_ALGORITHMS:
             return (
-                bfs_output,
-                bf_output,
-                prim_output,
+                algorithm_outputs["bfs"],
+                algorithm_outputs["bf"],
+                algorithm_outputs["prim"],
                 termination_probs,
                 processed_embeddings,
-                aux,
             )
-
-        return bfs_output, bf_output, prim_output, termination_probs, processed_embeddings
+        return algorithm_outputs, termination_probs, processed_embeddings

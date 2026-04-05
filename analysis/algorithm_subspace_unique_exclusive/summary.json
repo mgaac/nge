@@ -1,0 +1,302 @@
+{
+  "source_trajectories_dirs": [
+    "runs/20260317-220537_647125b-dirty7a8bf0e9_clrs-graphs/analysis/embedding_trajectories_val_dataset",
+    "runs/20260317-220537_647125b-dirty7a8bf0e9_clrs-graphs/analysis/embedding_trajectories_val_dijkstra_dataset",
+    "runs/20260317-220537_647125b-dirty7a8bf0e9_clrs-graphs/analysis/embedding_trajectories_val_dag_shortest_paths_dataset"
+  ],
+  "source_datasets": [
+    "data/val_dataset.npz",
+    "data/val_dijkstra_dataset.npz",
+    "data/val_dag_shortest_paths_dataset.npz"
+  ],
+  "algorithms": [
+    "bfs",
+    "bf",
+    "dijkstra",
+    "dag_shortest_paths",
+    "prim"
+  ],
+  "latent": "processed",
+  "node_agg": "max",
+  "num_graphs": 267,
+  "uses_terminal_probe_extension": true,
+  "membership_mode": "exclusive",
+  "tasks": "all",
+  "requested_algorithms": [
+    "bfs",
+    "bf",
+    "dijkstra",
+    "dag_shortest_paths",
+    "prim"
+  ],
+  "omitted_algorithms": [
+    "bfs",
+    "bf"
+  ],
+  "num_sources": 3,
+  "labels": [
+    "Dijkstra",
+    "DAG Shortest Paths",
+    "Prim"
+  ],
+  "common_subspace_dim": 3,
+  "algorithm_summaries": {
+    "dijkstra": {
+      "count": 1620,
+      "step_histogram": {
+        "0": 81,
+        "1": 81,
+        "2": 81,
+        "3": 81,
+        "4": 81,
+        "5": 81,
+        "6": 81,
+        "7": 81,
+        "8": 81,
+        "9": 81,
+        "10": 81,
+        "11": 81,
+        "12": 81,
+        "13": 81,
+        "14": 81,
+        "15": 81,
+        "16": 81,
+        "17": 81,
+        "18": 81,
+        "19": 81
+      },
+      "pca_components_used": 3,
+      "explained_variance_ratio": [
+        0.3594324290752411,
+        0.19938872754573822,
+        0.10275145620107651
+      ],
+      "self_explained_variance_ratio": 0.6615726196440592,
+      "inactive_explained_variance_ratio": 0.07192893269834078
+    },
+    "dag_shortest_paths": {
+      "count": 2000,
+      "step_histogram": {
+        "0": 100,
+        "1": 100,
+        "2": 100,
+        "3": 100,
+        "4": 100,
+        "5": 100,
+        "6": 100,
+        "7": 100,
+        "8": 100,
+        "9": 100,
+        "10": 100,
+        "11": 100,
+        "12": 100,
+        "13": 100,
+        "14": 100,
+        "15": 100,
+        "16": 100,
+        "17": 100,
+        "18": 100,
+        "19": 100
+      },
+      "pca_components_used": 3,
+      "explained_variance_ratio": [
+        0.30519482493400574,
+        0.1965327113866806,
+        0.11491067707538605
+      ],
+      "self_explained_variance_ratio": 0.6166382165259655,
+      "inactive_explained_variance_ratio": 0.04923496824796336
+    },
+    "prim": {
+      "count": 1300,
+      "step_histogram": {
+        "4": 27,
+        "5": 71,
+        "6": 84,
+        "7": 86,
+        "8": 86,
+        "9": 86,
+        "10": 86,
+        "11": 86,
+        "12": 86,
+        "13": 86,
+        "14": 86,
+        "15": 86,
+        "16": 86,
+        "17": 86,
+        "18": 86,
+        "19": 86
+      },
+      "pca_components_used": 3,
+      "explained_variance_ratio": [
+        0.3750443458557129,
+        0.10274629294872284,
+        0.07574494928121567
+      ],
+      "self_explained_variance_ratio": 0.5535355934964246,
+      "inactive_explained_variance_ratio": 0.06207961429046216
+    }
+  },
+  "subspace_overlap_mean_canonical_corr": [
+    [
+      0.999999996561753,
+      0.22218649895306752,
+      0.22427266739927695
+    ],
+    [
+      0.22218649895306744,
+      0.9999999926210328,
+      0.19830221815587237
+    ],
+    [
+      0.224272667399277,
+      0.19830221815587237,
+      0.9999999902543024
+    ]
+  ],
+  "cross_explained_variance": [
+    [
+      0.6615726196440592,
+      0.07307876165898153,
+      0.04732233826329979
+    ],
+    [
+      0.07951811463385094,
+      0.6166382165259655,
+      0.039895668787855
+    ],
+    [
+      0.09584136465709703,
+      0.05651334956323095,
+      0.5535355934964246
+    ]
+  ],
+  "pairwise_details": {
+    "dijkstra_vs_dijkstra": {
+      "canonical_correlations": [
+        1.0,
+        0.9999999966012295,
+        0.9999999930840298
+      ],
+      "mean_canonical_correlation": 0.999999996561753,
+      "min_canonical_correlation": 0.9999999930840298,
+      "principal_angles_deg": [
+        0.0,
+        0.004723876658883514,
+        0.006738514828894838
+      ]
+    },
+    "dijkstra_vs_dag_shortest_paths": {
+      "canonical_correlations": [
+        0.4062858664438892,
+        0.21923204073411826,
+        0.04104158968119508
+      ],
+      "mean_canonical_correlation": 0.22218649895306752,
+      "min_canonical_correlation": 0.04104158968119508,
+      "principal_angles_deg": [
+        66.02826872259836,
+        77.33606893255867,
+        87.64782947393117
+      ]
+    },
+    "dijkstra_vs_prim": {
+      "canonical_correlations": [
+        0.3775743962062848,
+        0.2464144638675661,
+        0.04882914212397991
+      ],
+      "mean_canonical_correlation": 0.22427266739927695,
+      "min_canonical_correlation": 0.04882914212397991,
+      "principal_angles_deg": [
+        67.81648412022446,
+        75.734560439751,
+        87.20118329061545
+      ]
+    },
+    "dag_shortest_paths_vs_dijkstra": {
+      "canonical_correlations": [
+        0.4062858664438891,
+        0.2192320407341182,
+        0.041041589681195055
+      ],
+      "mean_canonical_correlation": 0.22218649895306744,
+      "min_canonical_correlation": 0.041041589681195055,
+      "principal_angles_deg": [
+        66.02826872259836,
+        77.33606893255867,
+        87.64782947393117
+      ]
+    },
+    "dag_shortest_paths_vs_dag_shortest_paths": {
+      "canonical_correlations": [
+        0.9999999989155657,
+        0.9999999912261829,
+        0.9999999877213498
+      ],
+      "mean_canonical_correlation": 0.9999999926210328,
+      "min_canonical_correlation": 0.9999999877213498,
+      "principal_angles_deg": [
+        0.002668328267999978,
+        0.0075898277435746215,
+        0.008978689320150448
+      ]
+    },
+    "dag_shortest_paths_vs_prim": {
+      "canonical_correlations": [
+        0.3939656125332012,
+        0.16171505337667239,
+        0.03922598855774347
+      ],
+      "mean_canonical_correlation": 0.19830221815587237,
+      "min_canonical_correlation": 0.03922598855774347,
+      "principal_angles_deg": [
+        66.7985224308102,
+        80.69354191445476,
+        87.7519396499799
+      ]
+    },
+    "prim_vs_dijkstra": {
+      "canonical_correlations": [
+        0.3775743962062849,
+        0.24641446386756619,
+        0.04882914212397994
+      ],
+      "mean_canonical_correlation": 0.224272667399277,
+      "min_canonical_correlation": 0.04882914212397994,
+      "principal_angles_deg": [
+        67.81648412022444,
+        75.73456043975098,
+        87.20118329061545
+      ]
+    },
+    "prim_vs_dag_shortest_paths": {
+      "canonical_correlations": [
+        0.3939656125332013,
+        0.16171505337667239,
+        0.0392259885577435
+      ],
+      "mean_canonical_correlation": 0.19830221815587237,
+      "min_canonical_correlation": 0.0392259885577435,
+      "principal_angles_deg": [
+        66.7985224308102,
+        80.69354191445476,
+        87.7519396499799
+      ]
+    },
+    "prim_vs_prim": {
+      "canonical_correlations": [
+        1.0,
+        0.9999999982458869,
+        0.9999999725170203
+      ],
+      "mean_canonical_correlation": 0.9999999902543024,
+      "min_canonical_correlation": 0.9999999725170203,
+      "principal_angles_deg": [
+        0.0,
+        0.0033936451050571967,
+        0.013432892509847878
+      ]
+    }
+  }
+}

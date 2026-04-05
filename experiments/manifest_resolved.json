@@ -1,0 +1,208 @@
+{
+  "name": "graph-transfer-matrix",
+  "manifest_path": "configs/transfer_matrix.template.yaml",
+  "targets": [
+    "bf",
+    "bfs",
+    "prim",
+    "dijkstra",
+    "dag_shortest_paths"
+  ],
+  "target_configs": {
+    "bf": "configs/bf.yaml",
+    "bfs": "configs/bfs.yaml",
+    "prim": "configs/prim.yaml",
+    "dijkstra": "configs/dijkstra.yaml",
+    "dag_shortest_paths": "configs/dag_shortest_paths.yaml"
+  },
+  "resolved_sources": {
+    "bf": "runs/iso/20260319-155310_647125b-dirty1e7a69fa_bf/checkpoints/step_00000200",
+    "bfs": "runs/iso/20260319-133649_647125b-dirty1e7a69fa_bfs/checkpoints/step_00000200",
+    "prim": "runs/iso/20260319-100544_647125b-dirty1e7a69fa_prim/checkpoints/step_00000200",
+    "dijkstra": "runs/iso/20260319-082943_647125b-dirty1e7a69fa_dijkstra/checkpoints/step_00000200",
+    "dag_shortest_paths": "runs/iso/20260319-162819_647125b-dirty1e7a69fa_dag-shortest-paths/checkpoints/step_00000200"
+  },
+  "config_overrides": {
+    "logging": {
+      "use_wandb": true,
+      "wandb_project": "nge-transfer-matrix"
+    }
+  },
+  "experiments": [
+    {
+      "source": "bf",
+      "target": "bf",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bf__to__bf.yaml",
+      "experiment_name": "graph-transfer-matrix__bf__to__bf",
+      "primary_metric": "bf_predecessor"
+    },
+    {
+      "source": "bf",
+      "target": "bfs",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bf__to__bfs.yaml",
+      "experiment_name": "graph-transfer-matrix__bf__to__bfs",
+      "primary_metric": "bfs_state"
+    },
+    {
+      "source": "bf",
+      "target": "prim",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bf__to__prim.yaml",
+      "experiment_name": "graph-transfer-matrix__bf__to__prim",
+      "primary_metric": "prim_predecessor"
+    },
+    {
+      "source": "bf",
+      "target": "dijkstra",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bf__to__dijkstra.yaml",
+      "experiment_name": "graph-transfer-matrix__bf__to__dijkstra",
+      "primary_metric": "dijkstra_predecessor"
+    },
+    {
+      "source": "bf",
+      "target": "dag_shortest_paths",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bf__to__dag_shortest_paths.yaml",
+      "experiment_name": "graph-transfer-matrix__bf__to__dag_shortest_paths",
+      "primary_metric": "dag_shortest_paths_predecessor"
+    },
+    {
+      "source": "bfs",
+      "target": "bf",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bfs__to__bf.yaml",
+      "experiment_name": "graph-transfer-matrix__bfs__to__bf",
+      "primary_metric": "bf_predecessor"
+    },
+    {
+      "source": "bfs",
+      "target": "bfs",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bfs__to__bfs.yaml",
+      "experiment_name": "graph-transfer-matrix__bfs__to__bfs",
+      "primary_metric": "bfs_state"
+    },
+    {
+      "source": "bfs",
+      "target": "prim",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bfs__to__prim.yaml",
+      "experiment_name": "graph-transfer-matrix__bfs__to__prim",
+      "primary_metric": "prim_predecessor"
+    },
+    {
+      "source": "bfs",
+      "target": "dijkstra",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bfs__to__dijkstra.yaml",
+      "experiment_name": "graph-transfer-matrix__bfs__to__dijkstra",
+      "primary_metric": "dijkstra_predecessor"
+    },
+    {
+      "source": "bfs",
+      "target": "dag_shortest_paths",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/bfs__to__dag_shortest_paths.yaml",
+      "experiment_name": "graph-transfer-matrix__bfs__to__dag_shortest_paths",
+      "primary_metric": "dag_shortest_paths_predecessor"
+    },
+    {
+      "source": "prim",
+      "target": "bf",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/prim__to__bf.yaml",
+      "experiment_name": "graph-transfer-matrix__prim__to__bf",
+      "primary_metric": "bf_predecessor"
+    },
+    {
+      "source": "prim",
+      "target": "bfs",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/prim__to__bfs.yaml",
+      "experiment_name": "graph-transfer-matrix__prim__to__bfs",
+      "primary_metric": "bfs_state"
+    },
+    {
+      "source": "prim",
+      "target": "prim",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/prim__to__prim.yaml",
+      "experiment_name": "graph-transfer-matrix__prim__to__prim",
+      "primary_metric": "prim_predecessor"
+    },
+    {
+      "source": "prim",
+      "target": "dijkstra",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/prim__to__dijkstra.yaml",
+      "experiment_name": "graph-transfer-matrix__prim__to__dijkstra",
+      "primary_metric": "dijkstra_predecessor"
+    },
+    {
+      "source": "prim",
+      "target": "dag_shortest_paths",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/prim__to__dag_shortest_paths.yaml",
+      "experiment_name": "graph-transfer-matrix__prim__to__dag_shortest_paths",
+      "primary_metric": "dag_shortest_paths_predecessor"
+    },
+    {
+      "source": "dijkstra",
+      "target": "bf",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dijkstra__to__bf.yaml",
+      "experiment_name": "graph-transfer-matrix__dijkstra__to__bf",
+      "primary_metric": "bf_predecessor"
+    },
+    {
+      "source": "dijkstra",
+      "target": "bfs",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dijkstra__to__bfs.yaml",
+      "experiment_name": "graph-transfer-matrix__dijkstra__to__bfs",
+      "primary_metric": "bfs_state"
+    },
+    {
+      "source": "dijkstra",
+      "target": "prim",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dijkstra__to__prim.yaml",
+      "experiment_name": "graph-transfer-matrix__dijkstra__to__prim",
+      "primary_metric": "prim_predecessor"
+    },
+    {
+      "source": "dijkstra",
+      "target": "dijkstra",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dijkstra__to__dijkstra.yaml",
+      "experiment_name": "graph-transfer-matrix__dijkstra__to__dijkstra",
+      "primary_metric": "dijkstra_predecessor"
+    },
+    {
+      "source": "dijkstra",
+      "target": "dag_shortest_paths",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dijkstra__to__dag_shortest_paths.yaml",
+      "experiment_name": "graph-transfer-matrix__dijkstra__to__dag_shortest_paths",
+      "primary_metric": "dag_shortest_paths_predecessor"
+    },
+    {
+      "source": "dag_shortest_paths",
+      "target": "bf",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dag_shortest_paths__to__bf.yaml",
+      "experiment_name": "graph-transfer-matrix__dag_shortest_paths__to__bf",
+      "primary_metric": "bf_predecessor"
+    },
+    {
+      "source": "dag_shortest_paths",
+      "target": "bfs",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dag_shortest_paths__to__bfs.yaml",
+      "experiment_name": "graph-transfer-matrix__dag_shortest_paths__to__bfs",
+      "primary_metric": "bfs_state"
+    },
+    {
+      "source": "dag_shortest_paths",
+      "target": "prim",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dag_shortest_paths__to__prim.yaml",
+      "experiment_name": "graph-transfer-matrix__dag_shortest_paths__to__prim",
+      "primary_metric": "prim_predecessor"
+    },
+    {
+      "source": "dag_shortest_paths",
+      "target": "dijkstra",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dag_shortest_paths__to__dijkstra.yaml",
+      "experiment_name": "graph-transfer-matrix__dag_shortest_paths__to__dijkstra",
+      "primary_metric": "dijkstra_predecessor"
+    },
+    {
+      "source": "dag_shortest_paths",
+      "target": "dag_shortest_paths",
+      "config_path": "experiments/graph_trasnfer_matrix/configs/dag_shortest_paths__to__dag_shortest_paths.yaml",
+      "experiment_name": "graph-transfer-matrix__dag_shortest_paths__to__dag_shortest_paths",
+      "primary_metric": "dag_shortest_paths_predecessor"
+    }
+  ]
+}

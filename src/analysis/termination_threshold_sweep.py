@@ -10,20 +10,27 @@ from typing import List
 import numpy as np
 
 from src.analysis.common import (
+    load_analysis_dataset,
     load_model_from_checkpoint,
     resolve_checkpoint_path,
     resolve_config,
     resolve_dataset_path,
 )
-from src.data import load_dataset
 from src.train import evaluate_model
-from src.utils.task_specs import METRIC_INDEX, SELECT_TASK_CHOICES, TERMINATION_LATENT_CHOICES, resolve_selected_tasks
+from src.utils.task_specs import (
+    SELECT_TASK_CHOICES,
+    TERMINATION_LATENT_CHOICES,
+    algorithm_display_name,
+    metric_index,
+    normalize_algorithm_order,
+    resolve_selected_tasks,
+)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Sweep termination thresholds and plot BF/BFS/Prim termination accuracy. "
+            "Sweep termination thresholds and plot per-algorithm termination accuracy. "
             "By default, sweep evaluation uses distance mode so legacy head-trained runs are supported."
         )
     )
@@ -58,7 +65,7 @@ def parse_args() -> argparse.Namespace:
         type=str,
         choices=SELECT_TASK_CHOICES,
         default="all",
-        help="Tasks to evaluate: all, bf, bfs, or prim.",
+        help="Tasks to evaluate.",
     )
     parser.add_argument(
         "--termination-mode",
@@ -163,9 +170,7 @@ def parse_thresholds(args: argparse.Namespace) -> List[float]:
 
 def save_plot(
     thresholds: List[float],
-    bf_term_acc: List[float],
-    bfs_term_acc: List[float],
-    prim_term_acc: List[float],
+    accuracy_series: dict[str, List[float]],
     split: str,
     latent: str,
     distance: str,
@@ -183,40 +188,24 @@ def save_plot(
         ) from exc
 
     fig, ax = plt.subplots(figsize=(7, 5))
-    ax.plot(
-        thresholds,
-        bf_term_acc,
-        marker="o",
-        linewidth=1.8,
-        markersize=4,
-        label="BF termination acc",
-        color="#1b9e77",
-    )
-    ax.plot(
-        thresholds,
-        bfs_term_acc,
-        marker="s",
-        linewidth=1.8,
-        markersize=4,
-        label="BFS termination acc",
-        color="#d95f02",
-    )
-    ax.plot(
-        thresholds,
-        prim_term_acc,
-        marker="^",
-        linewidth=1.8,
-        markersize=4,
-        label="Prim termination acc",
-        color="#7570b3",
-    )
+    colors = ["#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e"]
+    markers = ["o", "s", "^", "D", "P"]
+    for index, (algorithm, values) in enumerate(accuracy_series.items()):
+        ax.plot(
+            thresholds,
+            values,
+            marker=markers[index % len(markers)],
+            linewidth=1.8,
+            markersize=4,
+            label=f"{algorithm_display_name(algorithm)} termination acc",
+            color=colors[index % len(colors)],
+        )
     ax.set_xlabel("Termination threshold")
     ax.set_ylabel("Accuracy")
-    if bf_term_acc and bfs_term_acc and prim_term_acc:
-        first_points = np.array(
-            [bf_term_acc[0], bfs_term_acc[0], prim_term_acc[0]], dtype=np.float64
-        )
-        all_points = np.array(bf_term_acc + bfs_term_acc + prim_term_acc, dtype=np.float64)
+    series_values = [np.asarray(values, dtype=np.float64) for values in accuracy_series.values() if values]
+    if series_values:
+        first_points = np.array([values[0] for values in series_values], dtype=np.float64)
+        all_points = np.concatenate(series_values, axis=0)
 
         # Start with a local zoom around the first threshold point.
         y_min = float(np.min(first_points) - 0.05)
@@ -253,6 +242,7 @@ def save_plot(
 def main() -> None:
     args = parse_args()
     config, run_dir = resolve_config(args.config, args.run_dir)
+    algorithm_order = normalize_algorithm_order(config.model.algorithms)
     original_mode = config.model.termination_mode
     config.model.termination_mode = args.termination_mode
     if original_mode != config.model.termination_mode:
@@ -262,7 +252,9 @@ def main() -> None:
     if args.termination_latent is not None:
         config.model.termination_distance_latent = args.termination_latent
 
-    dataset_path = resolve_dataset_path(args.dataset, args.split, config)
+    dataset_path = resolve_dataset_path(
+        args.dataset, args.split, config, algorithm_order=algorithm_order
+    )
     if not dataset_path.exists():
         raise FileNotFoundError(f"Dataset not found: {dataset_path}")
 
@@ -270,13 +262,14 @@ def main() -> None:
     model, step = load_model_from_checkpoint(config, checkpoint_path, run_dir)
     model.eval()
 
-    dataset = load_dataset(dataset_path)
-    selected_tasks = resolve_selected_tasks(args.tasks)
+    dataset = load_analysis_dataset(dataset_path, algorithm_order)
+    selected_tasks = resolve_selected_tasks(args.tasks, algorithm_order)
     thresholds = parse_thresholds(args)
+    metric_indices = metric_index(algorithm_order)
 
-    bf_term_acc: List[float] = []
-    bfs_term_acc: List[float] = []
-    prim_term_acc: List[float] = []
+    termination_accuracy = {
+        algorithm: [] for algorithm in algorithm_order if selected_tasks.get(algorithm, False)
+    }
     losses: List[float] = []
 
     for threshold in thresholds:
@@ -291,9 +284,9 @@ def main() -> None:
             selected_tasks=selected_tasks,
         )
         losses.append(float(loss))
-        bf_term_acc.append(float(accuracies[METRIC_INDEX["bf_termination"]]))
-        bfs_term_acc.append(float(accuracies[METRIC_INDEX["bfs_termination"]]))
-        prim_term_acc.append(float(accuracies[METRIC_INDEX["prim_termination"]]))
+        for algorithm in termination_accuracy:
+            metric_name = f"{algorithm}_termination"
+            termination_accuracy[algorithm].append(float(accuracies[metric_indices[metric_name]]))
 
     output_dir = (
         Path(args.output_dir)
@@ -309,9 +302,7 @@ def main() -> None:
     plot_path = output_dir / f"{args.split}_threshold_vs_termination_accuracy.png"
     save_plot(
         thresholds=thresholds,
-        bf_term_acc=bf_term_acc,
-        bfs_term_acc=bfs_term_acc,
-        prim_term_acc=prim_term_acc,
+        accuracy_series=termination_accuracy,
         split=args.split,
         latent=config.model.termination_distance_latent,
         distance=config.model.termination_distance,
@@ -331,9 +322,7 @@ def main() -> None:
         },
         "thresholds": thresholds,
         "loss": losses,
-        "acc_bf_termination": bf_term_acc,
-        "acc_bfs_termination": bfs_term_acc,
-        "acc_prim_termination": prim_term_acc,
+        "termination_accuracy": termination_accuracy,
         "plot": str(plot_path),
     }
     with open(output_dir / f"{args.split}_threshold_sweep.json", "w") as f:

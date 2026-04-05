@@ -1,0 +1,1303 @@
+{
+  "matrix_dir": "experiments/graph_trasnfer_matrix",
+  "resolved_manifest_path": "experiments/manifest_resolved.json",
+  "run_root": "runs",
+  "sources": [
+    "bf",
+    "bfs",
+    "prim",
+    "dijkstra",
+    "dag_shortest_paths"
+  ],
+  "targets": [
+    "bf",
+    "bfs",
+    "prim",
+    "dijkstra",
+    "dag_shortest_paths"
+  ],
+  "reference_shared_hyperparameters": {
+    "model": {
+      "embed_dim": 32,
+      "residual_connections": true,
+      "agg_fn": "MAX",
+      "num_mp_layers": 2,
+      "dropout": 0.1,
+      "termination_mode": "distance",
+      "termination_distance_latent": "processed",
+      "termination_distance": "l2",
+      "termination_distance_threshold": 12,
+      "termination_distance_signal": true
+    },
+    "training": {
+      "epochs": 200,
+      "learning_rate": 1e-05,
+      "max_grad_norm": 1.0,
+      "batch_size": 10,
+      "eval_interval": 10,
+      "seed": 42
+    },
+    "logging": {
+      "log_interval": 1,
+      "save_checkpoints": true,
+      "checkpoint_interval": 50,
+      "checkpoint_keep_last": 10
+    }
+  },
+  "source_runs": {
+    "bf": {
+      "run_dir": "runs/iso/20260319-155310_647125b-dirty1e7a69fa_bf",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "bfs": {
+      "run_dir": "runs/iso/20260319-133649_647125b-dirty1e7a69fa_bfs",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "prim": {
+      "run_dir": "runs/iso/20260319-100544_647125b-dirty1e7a69fa_prim",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "dijkstra": {
+      "run_dir": "runs/iso/20260319-082943_647125b-dirty1e7a69fa_dijkstra",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "dag_shortest_paths": {
+      "run_dir": "runs/iso/20260319-162819_647125b-dirty1e7a69fa_dag-shortest-paths",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    }
+  },
+  "transfer_runs": {
+    "bf__to__bfs": {
+      "status": "ok",
+      "run_dir": "runs/20260320-022504_647125b-dirty340505db_graph-transfer-matrix__bf__to__bfs",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "bfs"
+        ],
+        "tasks": "bfs",
+        "init_checkpoint": "runs/iso/20260319-155310_647125b-dirty1e7a69fa_bf/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "bfs_encoder",
+          "bfs_decoder",
+          "bfs_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "bf__to__prim": {
+      "status": "ok",
+      "run_dir": "runs/20260320-030125_647125b-dirty340505db_graph-transfer-matrix__bf__to__prim",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "prim"
+        ],
+        "tasks": "prim",
+        "init_checkpoint": "runs/iso/20260319-155310_647125b-dirty1e7a69fa_bf/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "prim_encoder",
+          "prim_decoder",
+          "prim_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "bf__to__dijkstra": {
+      "status": "ok",
+      "run_dir": "runs/20260320-055745_647125b-dirty340505db_graph-transfer-matrix__bf__to__dijkstra",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "dijkstra"
+        ],
+        "tasks": "dijkstra",
+        "init_checkpoint": "runs/iso/20260319-155310_647125b-dirty1e7a69fa_bf/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "dijkstra_encoder",
+          "dijkstra_decoder",
+          "dijkstra_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "bf__to__dag_shortest_paths": {
+      "status": "ok",
+      "run_dir": "runs/20260320-072425_647125b-dirty340505db_graph-transfer-matrix__bf__to__dag_shortest_paths",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "dag_shortest_paths"
+        ],
+        "tasks": "dag_shortest_paths",
+        "init_checkpoint": "runs/iso/20260319-155310_647125b-dirty1e7a69fa_bf/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "dag_shortest_paths_encoder",
+          "dag_shortest_paths_decoder",
+          "dag_shortest_paths_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "bfs__to__bf": {
+      "status": "ok",
+      "run_dir": "runs/20260320-085257_647125b-dirty340505db_graph-transfer-matrix__bfs__to__bf",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "bf"
+        ],
+        "tasks": "bf",
+        "init_checkpoint": "runs/iso/20260319-133649_647125b-dirty1e7a69fa_bfs/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "bf_encoder",
+          "bf_decoder",
+          "bf_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "bfs__to__prim": {
+      "status": "ok",
+      "run_dir": "runs/20260320-092650_647125b-dirty340505db_graph-transfer-matrix__bfs__to__prim",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "prim"
+        ],
+        "tasks": "prim",
+        "init_checkpoint": "runs/iso/20260319-133649_647125b-dirty1e7a69fa_bfs/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "prim_encoder",
+          "prim_decoder",
+          "prim_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "bfs__to__dijkstra": {
+      "status": "ok",
+      "run_dir": "runs/20260320-122510_647125b-dirty340505db_graph-transfer-matrix__bfs__to__dijkstra",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "dijkstra"
+        ],
+        "tasks": "dijkstra",
+        "init_checkpoint": "runs/iso/20260319-133649_647125b-dirty1e7a69fa_bfs/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "dijkstra_encoder",
+          "dijkstra_decoder",
+          "dijkstra_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "bfs__to__dag_shortest_paths": {
+      "status": "ok",
+      "run_dir": "runs/20260320-154923_647125b-dirty340505db_graph-transfer-matrix__bfs__to__dag_shortest_paths",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "dag_shortest_paths"
+        ],
+        "tasks": "dag_shortest_paths",
+        "init_checkpoint": "runs/iso/20260319-133649_647125b-dirty1e7a69fa_bfs/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "dag_shortest_paths_encoder",
+          "dag_shortest_paths_decoder",
+          "dag_shortest_paths_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "prim__to__bf": {
+      "status": "ok",
+      "run_dir": "runs/20260320-184435_647125b-dirty340505db_graph-transfer-matrix__prim__to__bf",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "bf"
+        ],
+        "tasks": "bf",
+        "init_checkpoint": "runs/iso/20260319-100544_647125b-dirty1e7a69fa_prim/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "bf_encoder",
+          "bf_decoder",
+          "bf_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "prim__to__bfs": {
+      "status": "ok",
+      "run_dir": "runs/20260320-211735_647125b-dirty340505db_graph-transfer-matrix__prim__to__bfs",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "bfs"
+        ],
+        "tasks": "bfs",
+        "init_checkpoint": "runs/iso/20260319-100544_647125b-dirty1e7a69fa_prim/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "bfs_encoder",
+          "bfs_decoder",
+          "bfs_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "prim__to__dijkstra": {
+      "status": "ok",
+      "run_dir": "runs/20260320-213710_647125b-dirty340505db_graph-transfer-matrix__prim__to__dijkstra",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "dijkstra"
+        ],
+        "tasks": "dijkstra",
+        "init_checkpoint": "runs/iso/20260319-100544_647125b-dirty1e7a69fa_prim/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "dijkstra_encoder",
+          "dijkstra_decoder",
+          "dijkstra_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "prim__to__dag_shortest_paths": {
+      "status": "ok",
+      "run_dir": "runs/20260321-015125_647125b-dirty340505db_graph-transfer-matrix__prim__to__dag_shortest_paths",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "dag_shortest_paths"
+        ],
+        "tasks": "dag_shortest_paths",
+        "init_checkpoint": "runs/iso/20260319-100544_647125b-dirty1e7a69fa_prim/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "dag_shortest_paths_encoder",
+          "dag_shortest_paths_decoder",
+          "dag_shortest_paths_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "dijkstra__to__bf": {
+      "status": "ok",
+      "run_dir": "runs/20260321-082025_647125b-dirty340505db_graph-transfer-matrix__dijkstra__to__bf",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "bf"
+        ],
+        "tasks": "bf",
+        "init_checkpoint": "runs/iso/20260319-082943_647125b-dirty1e7a69fa_dijkstra/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "bf_encoder",
+          "bf_decoder",
+          "bf_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "dijkstra__to__bfs": {
+      "status": "ok",
+      "run_dir": "runs/20260321-090335_647125b-dirty340505db_graph-transfer-matrix__dijkstra__to__bfs",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "bfs"
+        ],
+        "tasks": "bfs",
+        "init_checkpoint": "runs/iso/20260319-082943_647125b-dirty1e7a69fa_dijkstra/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "bfs_encoder",
+          "bfs_decoder",
+          "bfs_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "dijkstra__to__prim": {
+      "status": "ok",
+      "run_dir": "runs/20260321-092542_647125b-dirty340505db_graph-transfer-matrix__dijkstra__to__prim",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "prim"
+        ],
+        "tasks": "prim",
+        "init_checkpoint": "runs/iso/20260319-082943_647125b-dirty1e7a69fa_dijkstra/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "prim_encoder",
+          "prim_decoder",
+          "prim_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "dijkstra__to__dag_shortest_paths": {
+      "status": "ok",
+      "run_dir": "runs/20260321-133403_647125b-dirty340505db_graph-transfer-matrix__dijkstra__to__dag_shortest_paths",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "dag_shortest_paths"
+        ],
+        "tasks": "dag_shortest_paths",
+        "init_checkpoint": "runs/iso/20260319-082943_647125b-dirty1e7a69fa_dijkstra/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "dag_shortest_paths_encoder",
+          "dag_shortest_paths_decoder",
+          "dag_shortest_paths_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "dag_shortest_paths__to__bf": {
+      "status": "ok",
+      "run_dir": "runs/20260321-185056_647125b-dirty340505db_graph-transfer-matrix__dag_shortest_paths__to__bf",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "bf"
+        ],
+        "tasks": "bf",
+        "init_checkpoint": "runs/iso/20260319-162819_647125b-dirty1e7a69fa_dag-shortest-paths/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "bf_encoder",
+          "bf_decoder",
+          "bf_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "dag_shortest_paths__to__bfs": {
+      "status": "ok",
+      "run_dir": "runs/20260321-213241_647125b-dirty340505db_graph-transfer-matrix__dag_shortest_paths__to__bfs",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "bfs"
+        ],
+        "tasks": "bfs",
+        "init_checkpoint": "runs/iso/20260319-162819_647125b-dirty1e7a69fa_dag-shortest-paths/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "bfs_encoder",
+          "bfs_decoder",
+          "bfs_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "dag_shortest_paths__to__prim": {
+      "status": "ok",
+      "run_dir": "runs/20260321-221735_647125b-dirty340505db_graph-transfer-matrix__dag_shortest_paths__to__prim",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "prim"
+        ],
+        "tasks": "prim",
+        "init_checkpoint": "runs/iso/20260319-162819_647125b-dirty1e7a69fa_dag-shortest-paths/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "prim_encoder",
+          "prim_decoder",
+          "prim_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    },
+    "dag_shortest_paths__to__dijkstra": {
+      "status": "ok",
+      "run_dir": "runs/20260322-001124_647125b-dirty340505db_graph-transfer-matrix__dag_shortest_paths__to__dijkstra",
+      "shared_hyperparameters": {
+        "model": {
+          "embed_dim": 32,
+          "residual_connections": true,
+          "agg_fn": "MAX",
+          "num_mp_layers": 2,
+          "dropout": 0.1,
+          "termination_mode": "distance",
+          "termination_distance_latent": "processed",
+          "termination_distance": "l2",
+          "termination_distance_threshold": 12,
+          "termination_distance_signal": true
+        },
+        "training": {
+          "epochs": 200,
+          "learning_rate": 1e-05,
+          "max_grad_norm": 1.0,
+          "batch_size": 10,
+          "eval_interval": 10,
+          "seed": 42
+        },
+        "logging": {
+          "log_interval": 1,
+          "save_checkpoints": true,
+          "checkpoint_interval": 50,
+          "checkpoint_keep_last": 10
+        }
+      },
+      "matches_reference": true,
+      "invariants_ok": true,
+      "invariants": {
+        "algorithms": [
+          "dijkstra"
+        ],
+        "tasks": "dijkstra",
+        "init_checkpoint": "runs/iso/20260319-162819_647125b-dirty1e7a69fa_dag-shortest-paths/checkpoints/step_00000200",
+        "init_checkpoint_modules": [
+          "processor"
+        ],
+        "freeze_modules": [
+          "processor"
+        ],
+        "reset_modules": [
+          "dijkstra_encoder",
+          "dijkstra_decoder",
+          "dijkstra_termination"
+        ]
+      },
+      "expected_epochs": 200,
+      "latest_test_step": 200
+    }
+  },
+  "all_shared_hyperparameters_standard": true,
+  "issues": []
+}

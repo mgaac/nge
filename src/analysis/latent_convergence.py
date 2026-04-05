@@ -20,17 +20,21 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from src.data import load_dataset
 from src.analysis.common import (
     compute_forward_latents,
-    iter_execution_inputs,
+    iter_execution_feature_values,
+    load_analysis_dataset,
     load_model_from_checkpoint,
     resolve_checkpoint_path,
     resolve_config,
     resolve_dataset_path,
 )
 from src.model import NGE
-from src.utils.task_specs import ANALYSIS_LATENT_CHOICES, build_node_algo_features
+from src.utils.task_specs import (
+    ANALYSIS_LATENT_CHOICES,
+    build_node_algo_features,
+    normalize_algorithm_order,
+)
 
 
 DistanceFn = Callable[[np.ndarray, np.ndarray], float]
@@ -204,75 +208,45 @@ def compute_latent_sequence(
     previous_step_hidden_states = mx.zeros([num_nodes, model.processor_embed_dim])
     latents: List[mx.array] = []
 
-    for (
-        true_bfs_state,
-        true_distance_bf,
-        true_prim_state,
-        true_prim_key,
-    ) in iter_execution_inputs(graph_data, extra_steps):
-        node_algo_features = build_node_algo_features(
-            true_bfs_state,
-            true_distance_bf,
-            true_prim_state,
-            true_prim_key,
-        )
+    for feature_values in iter_execution_feature_values(
+        graph_data, extra_steps, model.algorithms
+    ):
+        node_algo_features = build_node_algo_features(feature_values, model.algorithms)
         input_embeddings = mx.concatenate(
             [previous_step_hidden_states, node_algo_features], axis=1
         )
 
         if latent_kind == "processed":
-            processed_embeddings, _, _, _, _ = compute_forward_latents(
+            processed_embeddings, _, _ = compute_forward_latents(
                 model, input_embeddings, graph_data["edge_matrix"]
             )
             latent = processed_embeddings
         elif latent_kind == "encoded":
-            processed_embeddings, encoded, _, _, _ = compute_forward_latents(
+            processed_embeddings, encoded, _ = compute_forward_latents(
                 model, input_embeddings, graph_data["edge_matrix"]
             )
             latent = encoded
-        elif latent_kind == "encoded_bfs":
-            processed_embeddings, _, bfs_encoded, _, _ = compute_forward_latents(
+        elif latent_kind.startswith("encoded_"):
+            processed_embeddings, _, encoded_by_algorithm = compute_forward_latents(
                 model, input_embeddings, graph_data["edge_matrix"]
             )
-            latent = bfs_encoded
-        elif latent_kind == "encoded_bf":
-            processed_embeddings, _, _, bf_encoded, _ = compute_forward_latents(
-                model, input_embeddings, graph_data["edge_matrix"]
-            )
-            latent = bf_encoded
-        elif latent_kind == "encoded_prim":
-            processed_embeddings, _, _, _, prim_encoded = compute_forward_latents(
-                model, input_embeddings, graph_data["edge_matrix"]
-            )
-            latent = prim_encoded
-        elif latent_kind == "processed_zero_bfs_input":
-            processed_embeddings, _, _, _, _ = compute_forward_latents(
+            algorithm = latent_kind[len("encoded_") :]
+            if algorithm not in encoded_by_algorithm:
+                raise ValueError(
+                    f"Latent '{latent_kind}' is unavailable for algorithms {model.algorithms}."
+                )
+            latent = encoded_by_algorithm[algorithm]
+        elif latent_kind.startswith("processed_zero_") and latent_kind.endswith("_input"):
+            algorithm = latent_kind[len("processed_zero_") : -len("_input")]
+            if algorithm not in model.algorithms:
+                raise ValueError(
+                    f"Latent '{latent_kind}' is unavailable for algorithms {model.algorithms}."
+                )
+            processed_embeddings, _, _ = compute_forward_latents(
                 model,
                 input_embeddings,
                 graph_data["edge_matrix"],
-                zero_bfs_input=True,
-                zero_bf_input=False,
-                zero_prim_input=False,
-            )
-            latent = processed_embeddings
-        elif latent_kind == "processed_zero_bf_input":
-            processed_embeddings, _, _, _, _ = compute_forward_latents(
-                model,
-                input_embeddings,
-                graph_data["edge_matrix"],
-                zero_bfs_input=False,
-                zero_bf_input=True,
-                zero_prim_input=False,
-            )
-            latent = processed_embeddings
-        elif latent_kind == "processed_zero_prim_input":
-            processed_embeddings, _, _, _, _ = compute_forward_latents(
-                model,
-                input_embeddings,
-                graph_data["edge_matrix"],
-                zero_bfs_input=False,
-                zero_bf_input=False,
-                zero_prim_input=True,
+                zero_input_algorithms=(algorithm,),
             )
             latent = processed_embeddings
         else:
@@ -487,7 +461,10 @@ def main() -> None:
     args = parse_args()
     config, run_dir = resolve_config(args.config, args.run_dir)
 
-    dataset_path = resolve_dataset_path(args.dataset, args.split, config)
+    algorithm_order = normalize_algorithm_order(config.model.algorithms)
+    dataset_path = resolve_dataset_path(
+        args.dataset, args.split, config, algorithm_order=algorithm_order
+    )
     if not dataset_path.exists():
         raise FileNotFoundError(f"Dataset not found: {dataset_path}")
 
@@ -495,7 +472,7 @@ def main() -> None:
     model, step = load_model_from_checkpoint(config, checkpoint_path, run_dir)
     model.eval()
 
-    dataset = load_dataset(dataset_path)
+    dataset = load_analysis_dataset(dataset_path, algorithm_order)
 
     if args.graph_index is not None:
         if args.graph_index < 0 or args.graph_index >= len(dataset):

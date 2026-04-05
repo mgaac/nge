@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Tuple
+from typing import Any, Dict, Iterable, Mapping, Sequence, Tuple
 
 import mlx.core as mx
 
+from src.data import load_dataset, materialize_graph_sample
 from src.model import AggregationFn, NGE
 from src.utils import CheckpointManager, ExperimentConfig, load_config, validate_config
+from src.utils.task_specs import (
+    DEFAULT_ALGORITHMS,
+    algorithm_target_keys,
+    execution_step_counts,
+    feature_values_for_step,
+    normalize_algorithm_order,
+    processor_algorithm_order,
+)
 
 
 def create_model(config: ExperimentConfig) -> NGE:
@@ -25,6 +34,7 @@ def create_model(config: ExperimentConfig) -> NGE:
         agg_fn=agg_fn,
         num_mp_layers=config.model.num_mp_layers,
         dropout=config.model.dropout,
+        algorithms=tuple(config.model.algorithms),
     )
 
 
@@ -48,10 +58,42 @@ def resolve_config(
 
 
 def resolve_dataset_path(
-    dataset_path: str | None, split: str, config: ExperimentConfig
+    dataset_path: str | None,
+    split: str,
+    config: ExperimentConfig,
+    algorithm_order: Sequence[str] | None = None,
 ) -> Path:
+    def task_split_path(task_entry: Any) -> str:
+        split_key = f"{split}_path"
+        if isinstance(task_entry, Mapping):
+            return str(task_entry[split_key])
+        return str(getattr(task_entry, split_key))
+
     if dataset_path:
         return Path(dataset_path)
+
+    if config.data.task_paths:
+        algorithms = normalize_algorithm_order(
+            algorithm_order if algorithm_order is not None else config.model.algorithms
+        )
+        candidate_paths = {
+            task_split_path(config.data.task_paths[algorithm])
+            for algorithm in algorithms
+            if algorithm in config.data.task_paths
+        }
+        if len(candidate_paths) == 1:
+            return Path(next(iter(candidate_paths)))
+        legacy_paths = {
+            task_split_path(config.data.task_paths[algorithm])
+            for algorithm in DEFAULT_ALGORITHMS
+            if algorithm in config.data.task_paths
+        }
+        if set(DEFAULT_ALGORITHMS).issubset(set(config.data.task_paths)) and len(legacy_paths) == 1:
+            return Path(next(iter(legacy_paths)))
+        raise ValueError(
+            "This config uses task-specific datasets. Provide --dataset explicitly for "
+            "analysis, or restrict the analysis to algorithms that share one dataset path."
+        )
 
     if split == "train":
         return Path(config.data.train_path)
@@ -98,65 +140,91 @@ def load_model_from_checkpoint(
     return model, step
 
 
-def iter_execution_inputs(
-    graph_data: dict, extra_steps: int
-) -> Iterable[Tuple[mx.array, mx.array, mx.array, mx.array]]:
-    bf_steps = graph_data["bf_distance_targets"]
-    bfs_steps = graph_data["bfs_state_targets"]
-    prim_states = graph_data["prim_state_targets"]
-    prim_keys = graph_data["prim_key_targets"]
-    num_bf_steps = len(bf_steps)
-    num_bfs_steps = len(bfs_steps)
-    num_prim_steps = len(prim_keys)
-    num_steps = max(num_bf_steps, num_bfs_steps, num_prim_steps)
+def infer_active_task(
+    graph_data: Mapping[str, Any],
+    algorithm_order: Sequence[str] | None,
+) -> str | None:
+    if "active_task" in graph_data:
+        active_task = graph_data["active_task"]
+        return str(active_task) if active_task is not None else None
 
-    for i in range(num_steps):
-        bf_sample_exists = (i + 1) < num_bf_steps
-        bfs_sample_exists = (i + 1) < num_bfs_steps
-        prim_sample_exists = (i + 1) < num_prim_steps
-        if not (bf_sample_exists or bfs_sample_exists or prim_sample_exists):
-            continue
-        true_bfs_state = bfs_steps[i] if bfs_sample_exists else bfs_steps[-1]
-        true_distance_bf = bf_steps[i] if bf_sample_exists else bf_steps[-1]
-        true_prim_state = prim_states[i] if prim_sample_exists else prim_states[-1]
-        true_prim_key = prim_keys[i] if prim_sample_exists else prim_keys[-1]
-        yield true_bfs_state, true_distance_bf, true_prim_state, true_prim_key
-
-    if extra_steps > 0:
-        final_bfs = bfs_steps[-1]
-        final_bf = bf_steps[-1]
-        final_prim_state = prim_states[-1]
-        final_prim_key = prim_keys[-1]
-        for _ in range(extra_steps):
-            yield final_bfs, final_bf, final_prim_state, final_prim_key
+    algorithms = normalize_algorithm_order(algorithm_order)
+    present = [
+        algorithm
+        for algorithm in algorithms
+        if all(key in graph_data for key in algorithm_target_keys(algorithm))
+    ]
+    if len(present) == 1:
+        return present[0]
+    return None
 
 
-def compute_encoded_embeddings(model: NGE, input_embeddings: mx.array) -> mx.array:
-    bfs_encoded = model.bfs_encoder(input_embeddings)
-    bf_encoded = model.bf_encoder(input_embeddings)
-    prim_encoded = model.prim_encoder(input_embeddings)
-    encoded = mx.concatenate([bfs_encoded, bf_encoded, prim_encoded], axis=1)
-    return model.ln(encoded)
+def materialize_analysis_graph(
+    graph_data: Mapping[str, Any],
+    algorithm_order: Sequence[str] | None,
+) -> dict[str, Any]:
+    algorithms = normalize_algorithm_order(algorithm_order)
+    graph_dict = dict(graph_data)
+    active_task = infer_active_task(graph_dict, algorithms)
+    return materialize_graph_sample(graph_dict, algorithms, active_task=active_task)
+
+
+def load_analysis_dataset(
+    dataset_path: str | Path,
+    algorithm_order: Sequence[str] | None,
+) -> list[dict[str, Any]]:
+    dataset = load_dataset(dataset_path)
+    return [materialize_analysis_graph(graph, algorithm_order) for graph in dataset]
+
+
+def count_execution_steps(
+    graph_data: Mapping[str, Any],
+    extra_steps: int,
+    algorithm_order: Sequence[str] | None,
+) -> int:
+    base_steps = max(execution_step_counts(graph_data, algorithm_order).values(), default=0)
+    return base_steps + max(extra_steps, 0)
+
+
+def iter_execution_feature_values(
+    graph_data: Mapping[str, Any],
+    extra_steps: int,
+    algorithm_order: Sequence[str] | None,
+) -> Iterable[dict[str, Any]]:
+    algorithms = normalize_algorithm_order(algorithm_order)
+    base_steps = max(execution_step_counts(graph_data, algorithms).values(), default=0)
+    for step_index in range(base_steps):
+        yield feature_values_for_step(graph_data, step_index, algorithms)
+
+    if extra_steps <= 0:
+        return
+
+    final_values = feature_values_for_step(graph_data, base_steps, algorithms)
+    for _ in range(extra_steps):
+        yield final_values
 
 
 def compute_forward_latents(
     model: NGE,
     input_embeddings: mx.array,
     edge_matrix: mx.array,
-    zero_bfs_input: bool = False,
-    zero_bf_input: bool = False,
-    zero_prim_input: bool = False,
-) -> Tuple[mx.array, mx.array, mx.array, mx.array, mx.array]:
-    bfs_input = mx.zeros_like(input_embeddings) if zero_bfs_input else input_embeddings
-    bf_input = mx.zeros_like(input_embeddings) if zero_bf_input else input_embeddings
-    prim_input = mx.zeros_like(input_embeddings) if zero_prim_input else input_embeddings
+    zero_input_algorithms: Sequence[str] | None = None,
+) -> Tuple[mx.array, mx.array, Dict[str, mx.array]]:
+    zero_input_set = set(zero_input_algorithms or [])
+    encoded_by_algorithm: Dict[str, mx.array] = {}
 
-    bfs_encoded = model.bfs_encoder(bfs_input)
-    bf_encoded = model.bf_encoder(bf_input)
-    prim_encoded = model.prim_encoder(prim_input)
+    for algorithm in model.algorithms:
+        encoder = getattr(model, f"{algorithm}_encoder")
+        encoder_input = (
+            mx.zeros_like(input_embeddings) if algorithm in zero_input_set else input_embeddings
+        )
+        encoded_by_algorithm[algorithm] = encoder(encoder_input)
 
-    encoded = mx.concatenate([bfs_encoded, bf_encoded, prim_encoded], axis=1)
+    encoded = mx.concatenate(
+        [encoded_by_algorithm[algorithm] for algorithm in processor_algorithm_order(model.algorithms)],
+        axis=1,
+    )
     encoded = model.ln(encoded)
 
     processed = model.processor((encoded, edge_matrix))
-    return processed, encoded, bfs_encoded, bf_encoded, prim_encoded
+    return processed, encoded, encoded_by_algorithm

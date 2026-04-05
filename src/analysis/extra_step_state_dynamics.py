@@ -20,14 +20,18 @@ import mlx.core as mx
 import numpy as np
 
 from src.analysis.common import (
-    iter_execution_inputs,
+    iter_execution_feature_values,
+    load_analysis_dataset,
     load_model_from_checkpoint,
     resolve_checkpoint_path,
     resolve_config,
     resolve_dataset_path,
 )
-from src.data import load_dataset
-from src.utils.task_specs import build_node_algo_features
+from src.utils.task_specs import (
+    build_node_algo_features,
+    execution_step_counts,
+    normalize_algorithm_order,
+)
 from src.utils.termination import (
     compute_distance_termination_logits,
     get_distance_latent,
@@ -100,11 +104,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def count_base_steps(graph_data: dict) -> int:
-    num_bf_steps = len(graph_data["bf_distance_targets"])
-    num_bfs_steps = len(graph_data["bfs_state_targets"])
-    num_prim_steps = len(graph_data["prim_key_targets"])
-    return max(max(num_bf_steps, num_bfs_steps, num_prim_steps) - 1, 0)
+def count_base_steps(graph_data: dict, algorithm_order: tuple[str, ...]) -> int:
+    return max(execution_step_counts(graph_data, algorithm_order).values(), default=0)
 
 
 def _mean_l2_per_node(a: np.ndarray, b: np.ndarray) -> float:
@@ -290,20 +291,30 @@ def main() -> None:
         raise ValueError("--period2-ratio must be > 0.")
 
     config, run_dir = resolve_config(args.config, args.run_dir)
-    dataset_path = resolve_dataset_path(args.dataset, args.split, config)
+    algorithm_order = normalize_algorithm_order(config.model.algorithms)
+    required_algorithms = ("bf", "bfs", "prim")
+    missing = [algorithm for algorithm in required_algorithms if algorithm not in algorithm_order]
+    if missing:
+        raise ValueError(
+            "extra_step_state_dynamics requires BF/BFS/Prim heads. Missing: "
+            + ", ".join(missing)
+        )
+    dataset_path = resolve_dataset_path(
+        args.dataset, args.split, config, algorithm_order=algorithm_order
+    )
     checkpoint_path = resolve_checkpoint_path(args.checkpoint, run_dir)
 
     model, checkpoint_step = load_model_from_checkpoint(config, checkpoint_path, run_dir)
     model.eval()
 
-    dataset = load_dataset(dataset_path)
+    dataset = load_analysis_dataset(dataset_path, algorithm_order)
     if args.graph_index < 0 or args.graph_index >= len(dataset):
         raise IndexError(
             f"--graph-index out of range: {args.graph_index} (dataset size={len(dataset)})"
         )
     graph_data = dataset[args.graph_index]
     num_nodes = int(graph_data["num_nodes"])
-    base_steps = count_base_steps(graph_data)
+    base_steps = count_base_steps(graph_data, algorithm_order)
 
     termination_settings = resolve_termination_settings(config.model)
     need_aux = needs_aux_latents(termination_settings)
@@ -321,29 +332,39 @@ def main() -> None:
     hidden_states: List[np.ndarray] = []
     flat_states: List[np.ndarray] = []
 
-    for step_index, (
-        true_bfs_state,
-        true_distance_bf,
-        true_prim_state,
-        true_prim_key,
-    ) in enumerate(
-        iter_execution_inputs(graph_data, args.extra_steps), start=1
+    for step_index, feature_values in enumerate(
+        iter_execution_feature_values(graph_data, args.extra_steps, algorithm_order), start=1
     ):
-        node_algo_features = build_node_algo_features(
-            true_bfs_state,
-            true_distance_bf,
-            true_prim_state,
-            true_prim_key,
-        )
+        node_algo_features = build_node_algo_features(feature_values, algorithm_order)
         input_embeddings = mx.concatenate([previous_hidden, node_algo_features], axis=1)
         model_input = (input_embeddings, graph_data["edge_matrix"])
 
         if need_aux:
-            bfs_output, bf_output, prim_output, termination_probs, processed_embeddings, aux = model(
-                model_input, return_latents=True
-            )
+            forward_output = model(model_input, return_latents=True)
+            if isinstance(forward_output[0], dict):
+                algorithm_outputs, termination_probs, processed_embeddings, aux = forward_output
+            else:
+                bfs_output, bf_output, prim_output, termination_probs, processed_embeddings, aux = (
+                    forward_output
+                )
+                algorithm_outputs = {
+                    "bfs": bfs_output,
+                    "bf": bf_output,
+                    "prim": prim_output,
+                }
         else:
-            bfs_output, bf_output, prim_output, termination_probs, processed_embeddings = model(model_input)
+            forward_output = model(model_input)
+            if isinstance(forward_output[0], dict):
+                algorithm_outputs, termination_probs, processed_embeddings = forward_output
+            else:
+                bfs_output, bf_output, prim_output, termination_probs, processed_embeddings = (
+                    forward_output
+                )
+                algorithm_outputs = {
+                    "bfs": bfs_output,
+                    "bf": bf_output,
+                    "prim": prim_output,
+                }
             aux = None
 
         if termination_settings["mode"] == "distance":
@@ -352,11 +373,15 @@ def main() -> None:
                 settings=termination_settings,
                 prev_latent=previous_distance_latent,
                 current_latent=current_latent,
+                algorithms=algorithm_order,
             )
             previous_distance_latent = current_latent
         else:
             termination_logits = termination_probs
 
+        bfs_output = algorithm_outputs["bfs"]
+        bf_output = algorithm_outputs["bf"]
+        prim_output = algorithm_outputs["prim"]
         bf_distance_pred, bf_pred_logits = bf_output
         prim_state_pred_logits, prim_key_pred, prim_pred_logits = prim_output
         bfs_pred = (mx.sigmoid(bfs_output) > 0.5).astype(mx.float32)

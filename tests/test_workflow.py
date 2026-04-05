@@ -17,8 +17,10 @@ import pytest
 import mlx.core as mx
 import mlx.optimizers as optim
 
-from src.data.dataset import generated_dataset, load_dataset, save_dataset
+from src.data.dataset import generated_dataset, load_dataset, materialize_graph_sample, save_dataset
 from src.model import NGE, AggregationFn
+from src.train import initialize_from_checkpoint_if_needed
+from src.analysis.transfer_matrix import scaffold_transfer_matrix
 from src.utils import (
     ExperimentConfig,
     ModelConfig,
@@ -255,6 +257,222 @@ def test_dataset_roundtrip_preserves_prim_targets(temp_dir):
     assert "prim_predecessor_targets" in sample
     assert sample["prim_state_targets"].shape[0] == sample["prim_key_targets"].shape[0]
     assert sample["prim_key_targets"].shape[0] == sample["prim_predecessor_targets"].shape[0]
+
+
+def test_shortest_path_task_datasets_roundtrip(temp_dir):
+    """Single-task Dijkstra and DAG datasets must round-trip with their own schemas."""
+    for task, distance_key, predecessor_key in [
+        ("dijkstra", "dijkstra_distance_targets", "dijkstra_predecessor_targets"),
+        (
+            "dag_shortest_paths",
+            "dag_shortest_paths_distance_targets",
+            "dag_shortest_paths_predecessor_targets",
+        ),
+    ]:
+        dataset = generated_dataset(num_graphs=2, num_nodes=6, p=0.5, m=2, task=task)
+        path = temp_dir / f"{task}.npz"
+        save_dataset(dataset, path, task=task)
+        loaded = load_dataset(path)
+
+        assert len(loaded) == len(dataset)
+        sample = loaded[0]
+        assert distance_key in sample
+        assert predecessor_key in sample
+        assert sample[distance_key].shape[0] == sample[predecessor_key].shape[0]
+
+
+def test_dynamic_algorithm_config_fields():
+    """Config dataclasses must retain dynamic algorithm selections."""
+    config = ExperimentConfig(
+        name="dijkstra_test",
+        model=ModelConfig(algorithms=["dijkstra"]),
+        training=TrainingConfig(
+            tasks="dijkstra",
+            init_checkpoint="runs/example/checkpoints/step_00000010",
+            init_checkpoint_modules=["processor"],
+        ),
+        data=DataConfig(
+            train_path="data/train_dijkstra_dataset.npz",
+            val_path="data/val_dijkstra_dataset.npz",
+            test_path="data/test_dijkstra_dataset.npz",
+        ),
+        logging=LoggingConfig(use_wandb=False),
+    )
+    assert config.model.algorithms == ["dijkstra"]
+    assert config.training.tasks == "dijkstra"
+    assert config.training.init_checkpoint_modules == ["processor"]
+
+
+def test_partial_checkpoint_init_copies_only_processor(temp_dir):
+    """Processor-only init must work across different single-task heads."""
+    dataset_path = temp_dir / "dummy_dataset.npz"
+    save_dataset(generated_dataset(num_graphs=1, num_nodes=4, p=0.5, m=2), dataset_path)
+
+    source_run_dir = temp_dir / "bf_source_run"
+    checkpoint_dir = source_run_dir / "checkpoints"
+    checkpoint_dir.mkdir(parents=True)
+
+    source_config = ExperimentConfig(
+        name="bf_source",
+        model=ModelConfig(algorithms=["bf"], embed_dim=8, num_mp_layers=1, dropout=0.0),
+        training=TrainingConfig(tasks="bf"),
+        data=DataConfig(
+            train_path=str(dataset_path),
+            val_path=str(dataset_path),
+            test_path=str(dataset_path),
+        ),
+        logging=LoggingConfig(use_wandb=False),
+    )
+    save_config(source_config, source_run_dir / "config_resolved.yaml")
+
+    source_model = NGE(
+        embed_dim=8,
+        residual_connections=True,
+        agg_fn=AggregationFn.MAX,
+        num_mp_layers=1,
+        dropout=0.0,
+        algorithms=("bf",),
+    )
+    for name, param in source_model.parameters().items():
+        fill_value = 7.0 if name.startswith("processor.") else 3.0
+        param[:] = mx.full_like(param, fill_value)
+    optimizer = optim.Adam(learning_rate=1e-3)
+    dummy_grads = {k: mx.zeros_like(v) for k, v in source_model.parameters().items()}
+    optimizer.update(source_model, dummy_grads)
+    mx.eval(source_model.parameters(), optimizer.state)
+
+    manager = CheckpointManager(checkpoint_dir)
+    source_ckpt = manager.save(source_model, optimizer, step=10)
+
+    target_config = ExperimentConfig(
+        name="bfs_target",
+        model=ModelConfig(algorithms=["bfs"], embed_dim=8, num_mp_layers=1, dropout=0.0),
+        training=TrainingConfig(
+            tasks="bfs",
+            init_checkpoint=str(source_ckpt),
+            init_checkpoint_modules=["processor"],
+        ),
+        data=DataConfig(
+            train_path=str(dataset_path),
+            val_path=str(dataset_path),
+            test_path=str(dataset_path),
+        ),
+        logging=LoggingConfig(use_wandb=False),
+    )
+    target_model = NGE(
+        embed_dim=8,
+        residual_connections=True,
+        agg_fn=AggregationFn.MAX,
+        num_mp_layers=1,
+        dropout=0.0,
+        algorithms=("bfs",),
+    )
+    target_before = {
+        name: value.copy() for name, value in target_model.parameters().items()
+    }
+
+    loaded_step = initialize_from_checkpoint_if_needed(target_model, target_config)
+    assert loaded_step == 10
+
+    for name, value in target_model.parameters().items():
+        if name.startswith("processor."):
+            assert mx.allclose(value, source_model.parameters()[name], atol=1e-6)
+        elif name.startswith("bfs_"):
+            assert mx.allclose(value, target_before[name], atol=1e-6)
+
+
+def test_transfer_matrix_scaffold_generates_pair_configs(temp_dir):
+    """Transfer-matrix scaffolding must emit canonical processor-only configs."""
+    dataset_path = temp_dir / "dummy_dataset.npz"
+    save_dataset(generated_dataset(num_graphs=1, num_nodes=4, p=0.5, m=2), dataset_path)
+
+    target_config = ExperimentConfig(
+        name="bfs",
+        model=ModelConfig(algorithms=["bfs"], embed_dim=8, num_mp_layers=1, dropout=0.0),
+        training=TrainingConfig(tasks="bfs", epochs=5),
+        data=DataConfig(
+            train_path=str(dataset_path),
+            val_path=str(dataset_path),
+            test_path=str(dataset_path),
+        ),
+        logging=LoggingConfig(use_wandb=False),
+    )
+    target_config_path = temp_dir / "bfs.yaml"
+    save_config(target_config, target_config_path)
+
+    source_run_dir = temp_dir / "bf_source_run"
+    checkpoint_dir = source_run_dir / "checkpoints"
+    checkpoint_dir.mkdir(parents=True)
+    source_config = ExperimentConfig(
+        name="bf_source",
+        model=ModelConfig(algorithms=["bf"], embed_dim=8, num_mp_layers=1, dropout=0.0),
+        training=TrainingConfig(tasks="bf"),
+        data=DataConfig(
+            train_path=str(dataset_path),
+            val_path=str(dataset_path),
+            test_path=str(dataset_path),
+        ),
+        logging=LoggingConfig(use_wandb=False),
+    )
+    save_config(source_config, source_run_dir / "config_resolved.yaml")
+    source_model = NGE(
+        embed_dim=8,
+        residual_connections=True,
+        agg_fn=AggregationFn.MAX,
+        num_mp_layers=1,
+        dropout=0.0,
+        algorithms=("bf",),
+    )
+    optimizer = optim.Adam(learning_rate=1e-3)
+    dummy_grads = {k: mx.zeros_like(v) for k, v in source_model.parameters().items()}
+    optimizer.update(source_model, dummy_grads)
+    mx.eval(source_model.parameters(), optimizer.state)
+    source_ckpt = CheckpointManager(checkpoint_dir).save(source_model, optimizer, step=12)
+
+    manifest = {
+        "name": "tm-test",
+        "sources": {"bf_bank": str(source_ckpt)},
+        "targets": ["bfs"],
+        "target_configs": {"bfs": str(target_config_path)},
+        "config_overrides": {"logging": {"use_wandb": False}},
+    }
+    manifest_path = temp_dir / "transfer_matrix.yaml"
+    with open(manifest_path, "w") as handle:
+        yaml_dump = json.dumps(manifest)
+        handle.write(yaml_dump)
+
+    output_dir = temp_dir / "matrix"
+    resolved = scaffold_transfer_matrix(manifest_path, output_dir)
+    assert len(resolved["experiments"]) == 1
+
+    generated_config = load_config(output_dir / "configs" / "bf_bank__to__bfs.yaml")
+    assert generated_config.name == "tm-test__bf_bank__to__bfs"
+    assert generated_config.model.algorithms == ["bfs"]
+    assert generated_config.training.tasks == "bfs"
+    assert generated_config.training.init_checkpoint == str(source_ckpt)
+    assert generated_config.training.init_checkpoint_modules == ["processor"]
+    assert generated_config.training.freeze_modules == ["processor"]
+    assert generated_config.training.reset_modules == [
+        "bfs_encoder",
+        "bfs_decoder",
+        "bfs_termination",
+    ]
+
+
+def test_materialize_graph_sample_for_clrs_mixture():
+    """Task materialization must zero inactive targets while preserving the active task."""
+    raw_graph = generated_dataset(num_graphs=1, num_nodes=6, p=0.5, m=2)[0]
+    graph = materialize_graph_sample(
+        raw_graph,
+        ["bf", "bfs", "prim", "dijkstra"],
+        active_task="bf",
+    )
+
+    assert graph["active_task"] == "bf"
+    assert graph["bf_distance_targets"].shape[0] > 1
+    assert graph["bfs_state_targets"].shape[0] == 1
+    assert graph["prim_state_targets"].shape[0] == 1
+    assert graph["dijkstra_distance_targets"].shape[0] == 1
 
 
 def test_model_forward_returns_prim_outputs():

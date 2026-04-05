@@ -8,6 +8,8 @@ model:
   agg_fn: MAX
   num_mp_layers: 2
   dropout: 0.1
+  algorithms:
+    - bf
   termination_mode: distance
   termination_distance_latent: processed
   termination_distance: l2

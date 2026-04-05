@@ -1,0 +1,27 @@
+name: graph-transfer-matrix
+
+sources:
+  bf: runs/iso/20260319-155310_647125b-dirty1e7a69fa_bf
+  bfs: runs/iso/20260319-133649_647125b-dirty1e7a69fa_bfs
+  prim: runs/iso/20260319-100544_647125b-dirty1e7a69fa_prim
+  dijkstra: runs/iso/20260319-082943_647125b-dirty1e7a69fa_dijkstra
+  dag_shortest_paths: runs/iso/20260319-162819_647125b-dirty1e7a69fa_dag-shortest-paths
+
+targets:
+  - bf
+  - bfs
+  - prim
+  - dijkstra
+  - dag_shortest_paths
+
+target_configs:
+  bf: configs/bf.yaml
+  bfs: configs/bfs.yaml
+  prim: configs/prim.yaml
+  dijkstra: configs/dijkstra.yaml
+  dag_shortest_paths: configs/dag_shortest_paths.yaml
+
+config_overrides:
+  logging:
+    use_wandb: true
+    wandb_project: nge-transfer-matrix
