@@ -1,0 +1,63 @@
+# CLRS-style mixed-task graph configuration with an identity processor.
+# Setting num_mp_layers to 0 disables message passing, so the processor
+# returns the concatenated task encodings unchanged.
+
+name: clrs-graphs-identity-processor
+
+model:
+  embed_dim: 32
+  residual_connections: true
+  agg_fn: MAX
+  num_mp_layers: 0
+  dropout: 0.1
+  algorithms:
+    - bf
+    - bfs
+    - prim
+    - dijkstra
+    - dag_shortest_paths
+  termination_mode: distance
+  termination_distance_latent: processed
+  termination_distance: l2
+  termination_distance_threshold: 12
+
+training:
+  epochs: 200
+  learning_rate: 1.0e-5
+  max_grad_norm: 1.0
+  batch_size: 10
+  eval_interval: 10
+  seed: 42
+  tasks: all
+
+data:
+  task_paths:
+    bf:
+      train_path: data/train_dataset.npz
+      val_path: data/val_dataset.npz
+      test_path: data/test_dataset.npz
+    bfs:
+      train_path: data/train_dataset.npz
+      val_path: data/val_dataset.npz
+      test_path: data/test_dataset.npz
+    prim:
+      train_path: data/train_dataset.npz
+      val_path: data/val_dataset.npz
+      test_path: data/test_dataset.npz
+    dijkstra:
+      train_path: data/train_dijkstra_dataset.npz
+      val_path: data/val_dijkstra_dataset.npz
+      test_path: data/test_dijkstra_dataset.npz
+    dag_shortest_paths:
+      train_path: data/train_dag_shortest_paths_dataset.npz
+      val_path: data/val_dag_shortest_paths_dataset.npz
+      test_path: data/test_dag_shortest_paths_dataset.npz
+
+logging:
+  use_wandb: true
+  wandb_project: nge-clrs-graphs
+  wandb_entity: ""
+  log_interval: 1
+  save_checkpoints: true
+  checkpoint_interval: 10
+  checkpoint_keep_last: 10

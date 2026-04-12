@@ -1,0 +1,6 @@
+source,bf,bfs,prim,dijkstra,dag_shortest_paths
+bf,,,,-0.019900,
+bfs,,,,-0.029300,
+prim,,,,-0.019900,
+dijkstra,,,,0.000000,
+dag_shortest_paths,,,,-0.020000,

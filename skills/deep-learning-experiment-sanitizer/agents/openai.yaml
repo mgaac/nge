@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deep Learning Sanitizer"
+  short_description: "Audit deep learning experiments"
+  default_prompt: "Use $deep-learning-experiment-sanitizer to audit this experiment for leakage, shortcut learning, and invalid evaluation claims."

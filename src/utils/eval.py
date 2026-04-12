@@ -94,6 +94,32 @@ def _float_item(value) -> float:
     return float(value.item())
 
 
+def _predicted_feature_values_for_next_step(algorithm_outputs, algorithm_order):
+    """Convert decoded outputs into the recurrent state features for the next step."""
+    feature_values = {}
+    for algorithm in algorithm_order:
+        family = algorithm_family(algorithm)
+        output = algorithm_outputs[algorithm]
+
+        if family == "state_mask":
+            feature_values[f"{algorithm}_state"] = (
+                mx.sigmoid(output) > 0.5
+            ).astype(mx.float32)
+        elif family == "shortest_path":
+            distance_predictions, _ = output
+            feature_values[f"{algorithm}_distance"] = distance_predictions
+        elif family == "mst":
+            state_predictions, key_predictions, _ = output
+            feature_values[f"{algorithm}_state"] = (
+                mx.sigmoid(state_predictions) > 0.5
+            ).astype(mx.float32)
+            feature_values[f"{algorithm}_key"] = key_predictions
+        else:
+            raise ValueError(f"Unsupported algorithm family: {family}")
+
+    return feature_values
+
+
 def _forward_step(
     model,
     graph_data,
@@ -103,13 +129,18 @@ def _forward_step(
     termination_settings,
     algorithm_order,
     step_counts,
+    feature_values_override=None,
 ):
     """Run one execution step and return normalized outputs."""
     sample_exists = {algorithm: step_index < step_counts[algorithm] for algorithm in algorithm_order}
     if not any(sample_exists.values()):
         return None
 
-    feature_values = feature_values_for_step(graph_data, step_index, algorithm_order)
+    feature_values = (
+        feature_values_for_step(graph_data, step_index, algorithm_order)
+        if feature_values_override is None
+        else feature_values_override
+    )
     targets = targets_for_step(graph_data, step_index, algorithm_order)
     termination_targets = termination_targets_for_step(graph_data, step_index, algorithm_order)
 
@@ -149,12 +180,17 @@ def _forward_step(
 
     return {
         "sample_exists": sample_exists,
+        "feature_values": feature_values,
         "targets": targets,
         "termination_targets": termination_targets,
         "algorithm_outputs": algorithm_outputs,
         "termination_logits": termination_logits,
         "processed_embeddings": processed_embeddings,
         "next_distance_latent": next_distance_latent,
+        "next_feature_values": _predicted_feature_values_for_next_step(
+            algorithm_outputs,
+            algorithm_order,
+        ),
     }
 
 
@@ -205,6 +241,7 @@ def print_execution_details(model, graph_data, embedding_dim=128, termination_cf
     norm_steps = {"hidden_state": 0}
     previous_step_hidden_states = mx.zeros([num_nodes, model.processor_embed_dim])
     previous_distance_latent = None
+    current_feature_values = feature_values_for_step(graph_data, 0, algorithm_order)
 
     print(f"\n{'=' * 80}")
     print(f"EXECUTION DETAILS - Graph with {num_nodes} nodes")
@@ -227,6 +264,7 @@ def print_execution_details(model, graph_data, embedding_dim=128, termination_cf
             termination_settings=termination_settings,
             algorithm_order=algorithm_order,
             step_counts=step_counts,
+            feature_values_override=current_feature_values,
         )
         if step_payload is None:
             continue
@@ -238,6 +276,7 @@ def print_execution_details(model, graph_data, embedding_dim=128, termination_cf
         termination_logits = step_payload["termination_logits"]
         processed_embeddings = step_payload["processed_embeddings"]
         previous_distance_latent = step_payload["next_distance_latent"]
+        current_feature_values = step_payload["next_feature_values"]
 
         print(f"\n{'=' * 60}")
         print(f"STEP {step_index} -> {step_index + 1}")
@@ -486,7 +525,7 @@ def calculate_losses_and_accuracies(
     termination_cfg=None,
     selected_tasks=None,
 ):
-    """Return average losses and accuracies, matching the training logic."""
+    """Return average losses and accuracies under autoregressive evaluation."""
     del embedding_dim  # Public API compatibility.
 
     algorithm_order = tuple(getattr(model, "algorithms", ALGORITHMS))
@@ -501,6 +540,7 @@ def calculate_losses_and_accuracies(
     num_nodes = int(graph_data["num_nodes"])
     previous_step_hidden_states = mx.zeros([num_nodes, model.processor_embed_dim])
     previous_distance_latent = None
+    current_feature_values = feature_values_for_step(graph_data, 0, algorithm_order)
 
     selected_tasks = _normalize_selected_tasks(selected_tasks, algorithm_order)
     sample_selected_tasks = selected_tasks_for_graph(
@@ -521,6 +561,7 @@ def calculate_losses_and_accuracies(
             termination_settings=termination_settings,
             algorithm_order=algorithm_order,
             step_counts=step_counts,
+            feature_values_override=current_feature_values,
         )
         if step_payload is None:
             continue
@@ -532,6 +573,7 @@ def calculate_losses_and_accuracies(
         termination_logits = step_payload["termination_logits"]
         processed_embeddings = step_payload["processed_embeddings"]
         previous_distance_latent = step_payload["next_distance_latent"]
+        current_feature_values = step_payload["next_feature_values"]
 
         raw_losses = mx.zeros([len(current_metric_names)])
         for algorithm in algorithm_order:
@@ -651,6 +693,7 @@ def calculate_losses_and_accuracies(
             accumulated_loss,
             accumulated_aux_losses,
             previous_step_hidden_states,
+            current_feature_values,
         )
 
     average_loss = accumulated_loss / effective_step_count(step_counts, sample_selected_tasks)
@@ -689,7 +732,7 @@ def _graph_failure_details(
     selected_tasks=None,
     include_step_details=False,
 ):
-    """Collect per-graph failure details for error analysis."""
+    """Collect per-graph failure details under autoregressive evaluation."""
     del embedding_dim  # Public API compatibility.
 
     algorithm_order = tuple(getattr(model, "algorithms", ALGORITHMS))
@@ -717,6 +760,7 @@ def _graph_failure_details(
 
     previous_step_hidden_states = mx.zeros([num_nodes, model.processor_embed_dim])
     previous_distance_latent = None
+    current_feature_values = feature_values_for_step(graph_data, 0, algorithm_order)
     step_failures = []
     first_failure_step = None
 
@@ -730,6 +774,7 @@ def _graph_failure_details(
             termination_settings=termination_settings,
             algorithm_order=algorithm_order,
             step_counts=step_counts,
+            feature_values_override=current_feature_values,
         )
         if step_payload is None:
             continue
@@ -741,6 +786,7 @@ def _graph_failure_details(
         termination_logits = step_payload["termination_logits"]
         processed_embeddings = step_payload["processed_embeddings"]
         previous_distance_latent = step_payload["next_distance_latent"]
+        current_feature_values = step_payload["next_feature_values"]
 
         step_entry = {"step": int(step_index + 1)}
         for metric_name in current_metric_names:
@@ -841,7 +887,7 @@ def _graph_failure_details(
                 step_failures.append(step_entry)
 
         previous_step_hidden_states = processed_embeddings
-        _eval_trees(previous_step_hidden_states)
+        _eval_trees(previous_step_hidden_states, current_feature_values)
 
     accuracies = {
         metric_name: correct[metric_name] / max(total[metric_name], 1)

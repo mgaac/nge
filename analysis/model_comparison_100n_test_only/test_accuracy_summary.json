@@ -1,0 +1,98 @@
+{
+  "split": "test",
+  "eval_file_name": "eval_test_100n.json",
+  "runs": [
+    {
+      "label": "normal",
+      "run_dir": "runs/20260317-220537_647125b-dirty7a8bf0e9_clrs-graphs",
+      "checkpoint_step": 200,
+      "latest_checkpoint_step": 200,
+      "primary_metric_values": {
+        "bfs_state": 1.0,
+        "bf_predecessor": 0.8585812449455261,
+        "dijkstra_predecessor": 0.6883174777030945,
+        "dag_shortest_paths_predecessor": 0.7223524451255798,
+        "prim_predecessor": 0.3480621576309204
+      },
+      "primary_metric_mean": 0.7234626650810242,
+      "all_accuracy_mean": 0.49088065524895985,
+      "task_nontermination_metric_values": {
+        "bfs": 1.0,
+        "bf": 0.6937395334243774,
+        "dijkstra": 0.3882972337305546,
+        "dag_shortest_paths": 0.4649002477526665,
+        "prim": 0.30515939742326736
+      },
+      "task_nontermination_metric_mean": 0.5704192824661731
+    },
+    {
+      "label": "frozen_random",
+      "run_dir": "runs/20260405-180449_2a33074-dirtye3b0c442_clrs-graphs-frozen-random-processor",
+      "checkpoint_step": 200,
+      "latest_checkpoint_step": 200,
+      "primary_metric_values": {
+        "bfs_state": 0.999049961566925,
+        "bf_predecessor": 0.7952640056610107,
+        "dijkstra_predecessor": 0.4380970895290375,
+        "dag_shortest_paths_predecessor": 0.5567364692687988,
+        "prim_predecessor": 0.4292677640914917
+      },
+      "primary_metric_mean": 0.6436830580234527,
+      "all_accuracy_mean": 0.41432303165396056,
+      "task_nontermination_metric_values": {
+        "bfs": 0.999049961566925,
+        "bf": 0.5761795341968536,
+        "dijkstra": 0.23130754381418228,
+        "dag_shortest_paths": 0.4272022396326065,
+        "prim": 0.33629297216733295
+      },
+      "task_nontermination_metric_mean": 0.5140064502755801
+    },
+    {
+      "label": "identity",
+      "run_dir": "runs/20260406-104020_2a33074-dirtyf9f87a51_clrs-graphs-identity-processor",
+      "checkpoint_step": 200,
+      "latest_checkpoint_step": 200,
+      "primary_metric_values": {
+        "bfs_state": 0.8475167155265808,
+        "bf_predecessor": 0.32720866799354553,
+        "dijkstra_predecessor": 0.03460235521197319,
+        "dag_shortest_paths_predecessor": 0.21820533275604248,
+        "prim_predecessor": 0.43965378403663635
+      },
+      "primary_metric_mean": 0.3734373711049557,
+      "all_accuracy_mean": 0.3251239148279031,
+      "task_nontermination_metric_values": {
+        "bfs": 0.8475167155265808,
+        "bf": 0.35664641857147217,
+        "dijkstra": 0.02789667807519436,
+        "dag_shortest_paths": 0.17425017803907394,
+        "prim": 0.36091046283642453
+      },
+      "task_nontermination_metric_mean": 0.3534440906097492
+    }
+  ],
+  "primary_metrics": [
+    "bfs_state",
+    "bf_predecessor",
+    "dijkstra_predecessor",
+    "dag_shortest_paths_predecessor",
+    "prim_predecessor"
+  ],
+  "task_nontermination_metrics": [
+    "bfs",
+    "bf",
+    "dijkstra",
+    "dag_shortest_paths",
+    "prim"
+  ],
+  "baseline_task_nontermination_metric_values": {
+    "bfs": 0.679,
+    "bf": 0.2905,
+    "dijkstra": 0.1605,
+    "dag_shortest_paths": 0.2595,
+    "prim": 0.3136666666666667
+  },
+  "csv_path": "analysis/model_comparison_100n_test_only/test_accuracy_comparison.csv",
+  "plot_path": "analysis/model_comparison_100n_test_only/test_primary_metric_comparison.png"
+}

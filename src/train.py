@@ -8,6 +8,7 @@ Usage:
 import argparse
 import contextlib
 import json
+import time
 from pathlib import Path
 
 import mlx.core as mx
@@ -1206,13 +1207,6 @@ def main():
         wandb_config=config.to_dict(),
     )
 
-    # Load datasets
-    print("\nLoading datasets...")
-    train_dataset = load_split_dataset(config, "train", selected_tasks)
-    val_dataset = load_split_dataset(config, "val", selected_tasks)
-    test_dataset = load_split_dataset(config, "test", selected_tasks)
-    print(f"Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
-
     # Create model
     print("\nCreating model...")
     model = create_model(config)
@@ -1253,6 +1247,15 @@ def main():
             print(f"\nWarning: Could not load checkpoint: {e}")
             print("Starting from scratch")
 
+    # Load training dataset first; defer val/test until needed.
+    print("\nLoading training dataset...")
+    train_load_start = time.perf_counter()
+    train_dataset = load_split_dataset(config, "train", selected_tasks)
+    train_load_seconds = time.perf_counter() - train_load_start
+    print(f"Train: {len(train_dataset)} (loaded in {train_load_seconds:.1f}s)")
+    val_dataset = None
+    test_dataset = None
+
     # Training loop
     print("\nStarting training...")
     print("=" * 80)
@@ -1285,6 +1288,13 @@ def main():
         # Evaluation
         if (epoch + 1) % config.training.eval_interval == 0:
             print(f"\nEvaluating at epoch {epoch}...")
+
+            if val_dataset is None:
+                print("Loading validation dataset...")
+                val_load_start = time.perf_counter()
+                val_dataset = load_split_dataset(config, "val", selected_tasks)
+                val_load_seconds = time.perf_counter() - val_load_start
+                print(f"Val: {len(val_dataset)} (loaded in {val_load_seconds:.1f}s)")
 
             # Validation
             val_aux_losses, val_loss, val_accuracies = evaluate_model(
@@ -1322,6 +1332,12 @@ def main():
     # Final evaluation on test set
     print("\n" + "=" * 80)
     print("Final evaluation on test set...")
+    if test_dataset is None:
+        print("Loading test dataset...")
+        test_load_start = time.perf_counter()
+        test_dataset = load_split_dataset(config, "test", selected_tasks)
+        test_load_seconds = time.perf_counter() - test_load_start
+        print(f"Test: {len(test_dataset)} (loaded in {test_load_seconds:.1f}s)")
     test_aux_losses, test_loss, test_accuracies = evaluate_model(
         model, test_dataset, config.model.embed_dim, config.model, selected_tasks
     )

@@ -134,7 +134,11 @@ class CheckpointManager:
             
             with open(self.latest_file, 'r') as f:
                 latest_info = json.load(f)
-            checkpoint_path = Path(latest_info['path'])
+            checkpoint_name = latest_info.get("checkpoint_name")
+            if checkpoint_name:
+                checkpoint_path = self.checkpoint_dir / checkpoint_name
+            else:
+                checkpoint_path = Path(latest_info["path"])
         else:
             checkpoint_path = Path(checkpoint_path)
         

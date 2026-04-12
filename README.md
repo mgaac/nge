@@ -22,6 +22,7 @@ It trains a message-passing model to predict algorithm state transitions with a 
 - `src/utils/` config, logging, checkpointing, evaluation, reproducibility helpers.
 - `src/analysis/` post-training analysis scripts.
 - `configs/` experiment configurations.
+- `skills/` project-local Codex skills for research workflow support.
 - `tests/` workflow and checkpointing tests.
 
 ## Setup
@@ -147,6 +148,10 @@ training:
 conda run -n mlx python -m src.train --config configs/prims_bf_bfs.yaml --resume
 ```
 
+Resume now restores checkpoint state before loading validation/test splits. On
+large CLRS mixed-task datasets this removes the previous startup stall caused by
+eagerly materializing all three splits at process start.
+
 ### 6. Eval-only
 
 ```bash
@@ -155,6 +160,11 @@ conda run -n mlx python -m src.train \
   --run-dir runs/<run_name> \
   --accuracies-only
 ```
+
+Evaluation is autoregressive over the explicit algorithm-state inputs. Step `t = 0`
+uses the dataset's initial state, and every later step feeds back the model's
+own step `t - 1` predictions as the next recurrent state inputs. Training
+remains teacher-forced.
 
 ## Configuration
 
@@ -237,6 +247,10 @@ logging:
 
 `training.init_checkpoint` loads weights before training starts. `training.init_checkpoint_modules` restricts that initialization to specific module paths; if it is empty, the whole checkpoint is loaded. `training.freeze_modules` zeroes gradients for the named module prefixes during optimization. `training.reset_modules` reinitializes named modules from a fresh model after the checkpoint is loaded. Valid module names are derived from `model.algorithms`; e.g. `processor`, `bf_encoder`, `dijkstra_decoder`, or `dag_shortest_paths_termination`.
 
+All evaluation paths that go through `src.train --eval-only`, validation during
+training, failure analysis, or `print_execution_details` use the same
+autoregressive rollout semantics for algorithm-state inputs.
+
 When `data.task_paths` is present, training switches to CLRS-style task mixing: each algorithm is loaded from its own dataset family, each sample activates exactly one task head, and the shared processor is optimized across the union of all selected tasks.
 
 ## Transfer matrices
@@ -265,6 +279,20 @@ conda run -n mlx python -m src.analysis.transfer_matrix collect \
   --matrix-dir experiments/graph_transfer_matrix \
   --split test
 ```
+
+If you change evaluation semantics and need to recompute the matrix from fresh
+`eval-only` artifacts, rerun eval on the source bank plus the discovered
+transfer runs and then collect from those JSON files:
+
+```bash
+./experiments/graph_trasnfer_matrix/eval_test_autoreg_commands.sh
+```
+
+That script writes refreshed per-run `analysis/eval_only_autoreg.json` files and
+rebuilds the matrix as `test_autoreg_*` under `experiments/graph_trasnfer_matrix/`.
+It executes each eval as `conda run -n <env> --no-capture-output` and retries
+failed runs up to `MAX_RETRIES` times (default `5`). Override defaults with
+`CONDA_ENV=<env>`, `MAX_RETRIES=<n>`, and `WANDB_MODE=<mode>`.
 
 The collector scans `runs/` for the latest run matching each generated experiment name, then writes:
 
@@ -301,6 +329,7 @@ This writes `run_consistency_audit.json` inside the matrix directory. The audit 
 | `src.analysis.pc_monotonicity` | Spearman/monotonicity checks between sequential latent distances and PCA coordinates near task termination |
 | `src.analysis.termination_threshold_sweep` | Threshold vs per-algorithm termination-accuracy curves |
 | `src.analysis.transfer_matrix` | Frozen-processor transfer-matrix config generation and result aggregation |
+| `src.analysis.eval_test_100n_triplet` | Test-only 100n eval for normal/frozen-random/identity runs + comparison CSV/JSON/plot |
 
 Example:
 
@@ -309,12 +338,39 @@ conda run -n mlx python -m src.analysis.dataset_step_distribution \
   --dataset data/test_dataset.npz
 ```
 
+Run the canonical test-only 100n comparison for the three CLRS processor variants (normal, frozen-random, identity):
+
+```bash
+conda run -n mlx python -m src.analysis.eval_test_100n_triplet
+```
+
+The comparison plot for this triplet now reports, per task, the mean of all
+non-termination accuracy heads (for example BF averages distance+predecessor,
+Prim averages state+key+predecessor).
+It also overlays a fixed baseline line using the provided expected accuracies:
+`bfs=0.679`, `bf=0.291`, `prim=0.314`, `dijkstra=0.161`, `dag_shortest_paths=0.260`.
+
 `src.analysis.embedding_trajectories` supports `--pca-components 2` and `--pca-components 3`; when plotting is enabled, three components produce a 3D PCA figure plus pairwise perspective views for `PC1-PC2`, `PC1-PC3`, and `PC2-PC3`. Step-wise PCA plots also overlay BF→BFS and BF→Prim reference segments built from the mean algorithm termination steps of the selected graphs.
 `src.analysis.embedding_trajectories` also supports `--execution-window {all,<algorithm>}` for every supported algorithm (`bf`, `bfs`, `prim`, `dijkstra`, `dag_shortest_paths`) and truncates the analyzed prefix to the steps where that algorithm is still executing.
 When `src.analysis.embedding_trajectories` is called with an explicit `--dataset` and no `--output-dir`, it now writes to `embedding_trajectories_<dataset_stem>` to avoid overwriting previous artifacts from other datasets.
 `src.analysis.algorithm_subspace` consumes one or more `embedding_trajectories` artifacts, uses the algorithm lists stored in their metadata, converts trajectories into per-step latent deltas, partitions those deltas by algorithm-active or algorithm-exclusive execution phases, and compares the resulting PCA subspaces via mean canonical correlations and cross explained-variance heatmaps. When invoked with only `--run-dir`, it auto-discovers full-window `embedding_trajectories*` artifacts under `runs/<name>/analysis/`. This is the intended path for CLRS-style mixed-task runs: keep BF/BFS/Prim in the shared legacy artifact and generate separate `embedding_trajectories_<algorithm>` artifacts for task-specific datasets such as Dijkstra and DAG shortest paths. Algorithms without active steps in the available sources are skipped and reported explicitly in the summary JSON.
 `src.analysis.pc_monotonicity` and `src.analysis.termination_threshold_sweep` now respect the run's configured algorithm set; use `--tasks <algorithm>` to analyze only one branch.
 For configs with `data.task_paths`, analysis defaults to the shared legacy BF/BFS/Prim dataset when one exists. To analyze task-specific datasets such as Dijkstra or DAG shortest paths, pass `--dataset` explicitly.
+
+## Codex research audit skill
+
+This repository now includes a project-local Codex skill at `skills/deep-learning-experiment-sanitizer/`.
+It is designed to critically audit deep learning experiments for:
+
+- split and duplicate leakage
+- target leakage and privileged inputs
+- shortcut learning and confounds
+- invalid evaluation claims or test-set contamination
+- architecture-amplified failure modes, including graph-learning shortcuts
+
+Use it when reviewing configs, dataset code, training loops, evaluation scripts, ablations, or result summaries that might otherwise overstate what a model has learned.
+
+If you want Codex to auto-discover it globally, copy or symlink that folder into `${CODEX_HOME:-$HOME/.codex}/skills/`.
 
 ## Outputs per run
 

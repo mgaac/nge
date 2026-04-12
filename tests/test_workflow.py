@@ -29,6 +29,7 @@ from src.utils import (
     LoggingConfig,
     load_config,
     save_config,
+    validate_config,
     set_seed,
     create_run_metadata,
     save_run_metadata,
@@ -36,6 +37,7 @@ from src.utils import (
     CheckpointManager,
     MetricsLogger,
 )
+from src.utils.eval import _predicted_feature_values_for_next_step
 
 
 @pytest.fixture
@@ -170,6 +172,18 @@ def test_metrics_jsonl_valid_and_monotonic(temp_dir):
     # Test logger validation method
     is_valid, error = logger.validate_log_file()
     assert is_valid, f"Log file validation failed: {error}"
+
+
+def test_config_allows_identity_processor():
+    """Identity processors are represented by zero message-passing layers."""
+    config = ExperimentConfig(
+        name="identity_processor",
+        model=ModelConfig(num_mp_layers=0),
+        training=TrainingConfig(epochs=1),
+        logging=LoggingConfig(use_wandb=False),
+    )
+
+    validate_config(config)
 
 
 def test_checkpoint_resume_correctness(temp_dir, sample_model):
@@ -515,18 +529,30 @@ def test_model_forward_returns_prim_outputs():
     assert prim_predecessor.shape == (num_nodes, num_nodes)
     assert set(termination_probs.keys()) == {"bf", "bfs", "prim"}
     assert processed.shape == (num_nodes, model.processor_embed_dim)
-    
-    # Save another checkpoint
-    manager.save(sample_model, optimizer, step=200)
-    
-    latest_step = manager.get_latest_step()
-    assert latest_step == 200, f"Latest step should be updated to 200, got {latest_step}"
-    
-    # List checkpoints
-    checkpoints = manager.list_checkpoints()
-    assert len(checkpoints) == 2, f"Expected 2 checkpoints, got {len(checkpoints)}"
-    assert checkpoints[0]['step'] == 100
-    assert checkpoints[1]['step'] == 200
+
+
+def test_autoregressive_eval_feedback_uses_previous_predictions():
+    """Evaluation feedback must roll predicted state probes into the next step."""
+    bfs_logits = mx.array([10.0, -10.0])
+    bf_distance = mx.array([0.25, 0.75])
+    bf_predecessor = mx.zeros((2, 2))
+    prim_state_logits = mx.array([-10.0, 10.0])
+    prim_key = mx.array([0.4, 0.6])
+    prim_predecessor = mx.zeros((2, 2))
+
+    feature_values = _predicted_feature_values_for_next_step(
+        {
+            "bfs": bfs_logits,
+            "bf": (bf_distance, bf_predecessor),
+            "prim": (prim_state_logits, prim_key, prim_predecessor),
+        },
+        ("bf", "bfs", "prim"),
+    )
+
+    assert mx.array_equal(feature_values["bfs_state"], mx.array([1.0, 0.0]))
+    assert mx.allclose(feature_values["bf_distance"], bf_distance, atol=1e-6)
+    assert mx.array_equal(feature_values["prim_state"], mx.array([0.0, 1.0]))
+    assert mx.allclose(feature_values["prim_key"], prim_key, atol=1e-6)
 
 
 def test_config_resolution_deterministic(temp_dir, sample_config):

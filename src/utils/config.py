@@ -158,8 +158,11 @@ def validate_config(config: ExperimentConfig) -> None:
     if config.model.agg_fn not in ["SUM", "AVG", "MIN", "MAX"]:
         raise ValueError(f"Invalid agg_fn: {config.model.agg_fn}")
     
-    if config.model.num_mp_layers <= 0:
-        raise ValueError(f"num_mp_layers must be positive, got {config.model.num_mp_layers}")
+    if config.model.num_mp_layers < 0:
+        raise ValueError(
+            "num_mp_layers must be non-negative, "
+            f"got {config.model.num_mp_layers}"
+        )
 
     if not 0 <= config.model.dropout < 1:
         raise ValueError(f"dropout must be in [0, 1), got {config.model.dropout}")
