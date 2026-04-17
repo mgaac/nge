@@ -239,6 +239,28 @@ def primary_metric_for_algorithm(algorithm: str) -> str:
     return non_termination[-1]
 
 
+def non_termination_metrics_for_algorithm(algorithm: str) -> list[str]:
+    return [
+        metric
+        for metric in SUPPORTED_ALGORITHM_SPECS[algorithm]["metric_names"]
+        if not metric.endswith("_termination")
+    ]
+
+
+def task_mean_nontermination_accuracy(
+    metrics: dict[str, float],
+    algorithm: str,
+) -> float | None:
+    values = []
+    for metric in non_termination_metrics_for_algorithm(algorithm):
+        key = f"acc/{metric}"
+        if key in metrics:
+            values.append(float(metrics[key]))
+    if not values:
+        return None
+    return float(np.mean(values))
+
+
 def create_model(config: ExperimentConfig):
     from src.model import NGE, AggregationFn
 
@@ -352,6 +374,7 @@ def plot_matrix_heatmap(
     vmax: float | None = None,
     cbar_label: str = "accuracy",
     signed: bool = False,
+    value_suffix: str = "",
 ) -> None:
     cmap = plt.get_cmap(cmap_name).copy()
     cmap.set_bad("#d9d9d9")
@@ -381,7 +404,11 @@ def plot_matrix_heatmap(
                 ax.text(
                     col_index,
                     row_index,
-                    f"{value:+.2f}" if signed else f"{value:.2f}",
+                    (
+                        f"{value:+.2f}{value_suffix}"
+                        if signed
+                        else f"{value:.2f}{value_suffix}"
+                    ),
                     ha="center",
                     va="center",
                     fontsize=8,
@@ -398,23 +425,20 @@ def baseline_by_target(
     targets: list[str],
     fallback_by_target: dict[str, float] | None = None,
 ) -> np.ndarray:
-    """Return the best self-processor score available for each target column."""
+    """Return own-processor baseline per target (diagonal preferred, fallback if missing)."""
     baselines = np.full((len(targets),), np.nan, dtype=np.float64)
     source_index = {source: index for index, source in enumerate(source_ids)}
     for col_index, target in enumerate(targets):
         row_index = source_index.get(target)
-        if row_index is None:
-            continue
-        candidates = []
-        diagonal_value = matrix[row_index, col_index]
-        if not np.isnan(diagonal_value):
-            candidates.append(float(diagonal_value))
+        if row_index is not None:
+            diagonal_value = matrix[row_index, col_index]
+            if not np.isnan(diagonal_value):
+                baselines[col_index] = float(diagonal_value)
+                continue
         if fallback_by_target is not None:
             fallback_value = fallback_by_target.get(target)
             if fallback_value is not None and not np.isnan(fallback_value):
-                candidates.append(float(fallback_value))
-        if candidates:
-            baselines[col_index] = max(candidates)
+                baselines[col_index] = float(fallback_value)
     return baselines
 
 
@@ -430,6 +454,21 @@ def delta_against_baseline(
         valid = ~np.isnan(column)
         delta[valid, col_index] = column[valid] - baseline
     return delta
+
+
+def percent_change_against_baseline(
+    matrix: np.ndarray,
+    baselines: np.ndarray,
+) -> np.ndarray:
+    """Return 100 * (value - baseline) / baseline with NaN for undefined cells."""
+    pct = np.full_like(matrix, np.nan, dtype=np.float64)
+    for col_index, baseline in enumerate(baselines):
+        if np.isnan(baseline) or baseline == 0.0:
+            continue
+        column = matrix[:, col_index]
+        valid = ~np.isnan(column)
+        pct[valid, col_index] = (column[valid] - baseline) * 100.0 / baseline
+    return pct
 
 
 def scaffold_transfer_matrix(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
@@ -593,6 +632,7 @@ def collect_transfer_matrix(
         metric: np.full((len(source_ids), len(targets)), np.nan, dtype=np.float64)
         for metric in all_metrics
     }
+    # Per-cell task score: mean non-termination accuracy for the target algorithm.
     primary_matrix = np.full((len(source_ids), len(targets)), np.nan, dtype=np.float64)
     pair_results = []
     source_baseline_metrics_by_target = {}
@@ -625,8 +665,10 @@ def collect_transfer_matrix(
                                 continue
                             value = float(metrics[metric_key])
                             metric_matrices[metric][row_index, col_index] = value
-                            if metric == entry["primary_metric"]:
-                                primary_matrix[row_index, col_index] = value
+                        task_mean = task_mean_nontermination_accuracy(metrics, target)
+                        if task_mean is not None:
+                            primary_matrix[row_index, col_index] = task_mean
+                            pair_result["task_nontermination_mean"] = task_mean
                         pair_results.append(pair_result)
                         continue
                 pair_results.append(pair_result)
@@ -646,8 +688,10 @@ def collect_transfer_matrix(
                     continue
                 value = float(metrics[metric_key])
                 metric_matrices[metric][row_index, col_index] = value
-                if metric == entry["primary_metric"]:
-                    primary_matrix[row_index, col_index] = value
+            task_mean = task_mean_nontermination_accuracy(metrics, target)
+            if task_mean is not None:
+                primary_matrix[row_index, col_index] = task_mean
+                pair_result["task_nontermination_mean"] = task_mean
             pair_results.append(pair_result)
 
     for target in targets:
@@ -680,14 +724,14 @@ def collect_transfer_matrix(
         targets,
         fallback_by_target={
             target: (
-                float(source_baseline_metrics_by_target[target][f"acc/{primary_metric_for_algorithm(target)}"])
-                if f"acc/{primary_metric_for_algorithm(target)}" in source_baseline_metrics_by_target[target]
+                task_mean_nontermination_accuracy(source_baseline_metrics_by_target[target], target)
+                if source_baseline_metrics_by_target[target]
                 else np.nan
             )
             for target in targets
         },
     )
-    primary_delta = delta_against_baseline(primary_matrix, primary_baselines)
+    primary_delta = percent_change_against_baseline(primary_matrix, primary_baselines)
     finite_primary_delta = primary_delta[np.isfinite(primary_delta)]
     primary_delta_absmax = (
         float(np.max(np.abs(finite_primary_delta))) if finite_primary_delta.size else 1.0
@@ -700,15 +744,16 @@ def collect_transfer_matrix(
         row_labels=source_ids,
         col_labels=targets,
         title=(
-            f"{stem} primary transfer delta "
-            "(vs own-processor max)"
+            f"{stem} primary transfer relative change "
+            "(% vs own-processor baseline)"
         ),
         output_path=primary_delta_png,
         cmap_name="coolwarm",
         vmin=-primary_delta_absmax,
         vmax=primary_delta_absmax,
-        cbar_label="accuracy delta",
+        cbar_label="% change vs baseline",
         signed=True,
+        value_suffix="%",
     )
 
     metric_artifacts = {}
@@ -750,7 +795,7 @@ def collect_transfer_matrix(
             delta_matrix,
             row_labels=source_ids,
             col_labels=targets,
-            title=f"{stem} {metric} delta (vs own-processor max)",
+            title=f"{stem} {metric} delta (vs own-processor baseline)",
             output_path=delta_png_path,
             cmap_name="coolwarm",
             vmin=-delta_absmax,
@@ -777,8 +822,12 @@ def collect_transfer_matrix(
         "sources": source_ids,
         "targets": targets,
         "primary_metrics": {
-            target: primary_metric_for_algorithm(target) for target in targets
+            target: non_termination_metrics_for_algorithm(target) for target in targets
         },
+        "primary_metric_definition": (
+            "Per-target mean of non-termination accuracies, then percent change "
+            "vs own-processor baseline: 100 * (value - baseline) / baseline."
+        ),
         "primary_baseline_by_target": {
             target: None if np.isnan(value) else float(value)
             for target, value in zip(targets, primary_baselines)
@@ -855,8 +904,10 @@ def collect_transfer_matrix_from_eval_only(
                                 continue
                             value = float(metrics[metric_key])
                             metric_matrices[metric][row_index, col_index] = value
-                            if metric == entry["primary_metric"]:
-                                primary_matrix[row_index, col_index] = value
+                        task_mean = task_mean_nontermination_accuracy(metrics, target)
+                        if task_mean is not None:
+                            primary_matrix[row_index, col_index] = task_mean
+                            pair_result["task_nontermination_mean"] = task_mean
                         pair_results.append(pair_result)
                         continue
                 pair_results.append(pair_result)
@@ -876,8 +927,10 @@ def collect_transfer_matrix_from_eval_only(
                     continue
                 value = float(metrics[metric_key])
                 metric_matrices[metric][row_index, col_index] = value
-                if metric == entry["primary_metric"]:
-                    primary_matrix[row_index, col_index] = value
+            task_mean = task_mean_nontermination_accuracy(metrics, target)
+            if task_mean is not None:
+                primary_matrix[row_index, col_index] = task_mean
+                pair_result["task_nontermination_mean"] = task_mean
             pair_results.append(pair_result)
 
     for target in targets:
@@ -910,19 +963,14 @@ def collect_transfer_matrix_from_eval_only(
         targets,
         fallback_by_target={
             target: (
-                float(
-                    source_baseline_metrics_by_target[target][
-                        f"acc/{primary_metric_for_algorithm(target)}"
-                    ]
-                )
-                if f"acc/{primary_metric_for_algorithm(target)}"
-                in source_baseline_metrics_by_target[target]
+                task_mean_nontermination_accuracy(source_baseline_metrics_by_target[target], target)
+                if source_baseline_metrics_by_target[target]
                 else np.nan
             )
             for target in targets
         },
     )
-    primary_delta = delta_against_baseline(primary_matrix, primary_baselines)
+    primary_delta = percent_change_against_baseline(primary_matrix, primary_baselines)
     finite_primary_delta = primary_delta[np.isfinite(primary_delta)]
     primary_delta_absmax = (
         float(np.max(np.abs(finite_primary_delta))) if finite_primary_delta.size else 1.0
@@ -934,13 +982,14 @@ def collect_transfer_matrix_from_eval_only(
         primary_delta,
         row_labels=source_ids,
         col_labels=targets,
-        title=f"{stem} primary transfer delta (vs own-processor max)",
+        title=f"{stem} primary transfer relative change (% vs own-processor baseline)",
         output_path=primary_delta_png,
         cmap_name="coolwarm",
         vmin=-primary_delta_absmax,
         vmax=primary_delta_absmax,
-        cbar_label="accuracy delta",
+        cbar_label="% change vs baseline",
         signed=True,
+        value_suffix="%",
     )
 
     metric_artifacts = {}
@@ -982,7 +1031,7 @@ def collect_transfer_matrix_from_eval_only(
             delta_matrix,
             row_labels=source_ids,
             col_labels=targets,
-            title=f"{stem} {metric} delta (vs own-processor max)",
+            title=f"{stem} {metric} delta (vs own-processor baseline)",
             output_path=delta_png_path,
             cmap_name="coolwarm",
             vmin=-delta_absmax,
@@ -1011,8 +1060,12 @@ def collect_transfer_matrix_from_eval_only(
         "sources": source_ids,
         "targets": targets,
         "primary_metrics": {
-            target: primary_metric_for_algorithm(target) for target in targets
+            target: non_termination_metrics_for_algorithm(target) for target in targets
         },
+        "primary_metric_definition": (
+            "Per-target mean of non-termination accuracies, then percent change "
+            "vs own-processor baseline: 100 * (value - baseline) / baseline."
+        ),
         "primary_baseline_by_target": {
             target: None if np.isnan(value) else float(value)
             for target, value in zip(targets, primary_baselines)
@@ -1251,7 +1304,7 @@ def main() -> None:
             output_prefix=args.output_prefix,
         )
         print(
-            f"Saved {args.split} transfer delta matrix to: "
+            f"Saved {args.split} transfer relative-change matrix to: "
             f"{summary['primary_matrix_csv']} and {summary['primary_matrix_png']}"
         )
         return
@@ -1264,7 +1317,7 @@ def main() -> None:
         output_prefix=args.output_prefix,
     )
     print(
-        f"Saved {args.split} eval-only transfer delta matrix to: "
+        f"Saved {args.split} eval-only transfer relative-change matrix to: "
         f"{summary['primary_matrix_csv']} and {summary['primary_matrix_png']}"
     )
 

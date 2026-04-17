@@ -1,0 +1,3922 @@
+{
+  "config_name": "clrs-graphs",
+  "checkpoint_step": 200,
+  "algorithms": [
+    "bf",
+    "bfs",
+    "prim",
+    "dijkstra",
+    "dag_shortest_paths"
+  ],
+  "dataset_paths": [
+    "data/val_dataset.npz",
+    "data/val_dijkstra_dataset.npz",
+    "data/val_dag_shortest_paths_dataset.npz"
+  ],
+  "num_graphs": 300,
+  "source_dataset_histogram": {
+    "data/val_dataset.npz": 100,
+    "data/val_dijkstra_dataset.npz": 100,
+    "data/val_dag_shortest_paths_dataset.npz": 100
+  },
+  "graph_index": null,
+  "max_graphs": null,
+  "latent": "processed",
+  "node_agg": "max",
+  "max_rollout_steps": 64,
+  "activity_source": "state_change",
+  "activity_threshold": 0.0001,
+  "pca_components_requested": 5,
+  "common_pca_components": 5,
+  "segment_order": [
+    5,
+    4,
+    3,
+    2,
+    1
+  ],
+  "segment_labels": [
+    "5 active",
+    "4 active",
+    "3 active",
+    "2 active",
+    "1 active"
+  ],
+  "segment_summaries": {
+    "5": {
+      "count": 1586,
+      "pca_components_used": 5,
+      "explained_variance_ratio": [
+        0.37807220220565796,
+        0.2537091374397278,
+        0.11866864562034607,
+        0.05939212813973427,
+        0.04033249616622925
+      ],
+      "step_histogram": {
+        "0": 300,
+        "1": 200,
+        "2": 200,
+        "3": 170,
+        "4": 160,
+        "5": 160,
+        "6": 133,
+        "7": 106,
+        "8": 64,
+        "9": 37,
+        "10": 21,
+        "11": 10,
+        "12": 4,
+        "13": 2,
+        "14": 2,
+        "15": 2,
+        "16": 2,
+        "17": 2,
+        "18": 2,
+        "19": 2,
+        "20": 2,
+        "21": 1,
+        "22": 1,
+        "23": 1,
+        "24": 1,
+        "25": 1
+      },
+      "active_signature_histogram": {
+        "bf+bfs+prim+dijkstra+dag_shortest_paths": 1586
+      },
+      "source_dataset_histogram": {
+        "data/val_dag_shortest_paths_dataset.npz": 100,
+        "data/val_dataset.npz": 793,
+        "data/val_dijkstra_dataset.npz": 693
+      }
+    },
+    "4": {
+      "count": 17426,
+      "pca_components_used": 5,
+      "explained_variance_ratio": [
+        0.47061580419540405,
+        0.11925096809864044,
+        0.09479207545518875,
+        0.089945487678051,
+        0.05904253199696541
+      ],
+      "step_histogram": {
+        "1": 100,
+        "2": 100,
+        "3": 130,
+        "4": 140,
+        "5": 140,
+        "6": 167,
+        "7": 194,
+        "8": 236,
+        "9": 263,
+        "10": 279,
+        "11": 290,
+        "12": 296,
+        "13": 298,
+        "14": 298,
+        "15": 298,
+        "16": 298,
+        "17": 298,
+        "18": 298,
+        "19": 298,
+        "20": 298,
+        "21": 299,
+        "22": 299,
+        "23": 299,
+        "24": 299,
+        "25": 299,
+        "26": 300,
+        "27": 300,
+        "28": 300,
+        "29": 300,
+        "30": 300,
+        "31": 300,
+        "32": 300,
+        "33": 300,
+        "34": 300,
+        "35": 300,
+        "36": 300,
+        "37": 300,
+        "38": 300,
+        "39": 300,
+        "40": 300,
+        "41": 300,
+        "42": 300,
+        "43": 300,
+        "44": 300,
+        "45": 300,
+        "46": 300,
+        "47": 299,
+        "48": 299,
+        "49": 298,
+        "50": 297,
+        "51": 295,
+        "52": 295,
+        "53": 294,
+        "54": 291,
+        "55": 290,
+        "56": 287,
+        "57": 286,
+        "58": 285,
+        "59": 281,
+        "60": 280,
+        "61": 280,
+        "62": 279,
+        "63": 276
+      },
+      "active_signature_histogram": {
+        "bf+prim+dijkstra+dag_shortest_paths": 17426
+      },
+      "source_dataset_histogram": {
+        "data/val_dag_shortest_paths_dataset.npz": 6300,
+        "data/val_dataset.npz": 5552,
+        "data/val_dijkstra_dataset.npz": 5574
+      }
+    },
+    "3": {
+      "count": 52,
+      "pca_components_used": 5,
+      "explained_variance_ratio": [
+        0.64710932970047,
+        0.13272663950920105,
+        0.07601604610681534,
+        0.058025334030389786,
+        0.016911812126636505
+      ],
+      "step_histogram": {
+        "47": 1,
+        "48": 1,
+        "49": 1,
+        "51": 2,
+        "52": 1,
+        "53": 1,
+        "54": 4,
+        "55": 3,
+        "56": 5,
+        "57": 5,
+        "58": 4,
+        "59": 5,
+        "60": 6,
+        "61": 5,
+        "62": 3,
+        "63": 5
+      },
+      "active_signature_histogram": {
+        "bf+dijkstra+dag_shortest_paths": 4,
+        "bf+prim+dag_shortest_paths": 14,
+        "bf+prim+dijkstra": 17,
+        "prim+dijkstra+dag_shortest_paths": 17
+      },
+      "source_dataset_histogram": {
+        "data/val_dataset.npz": 21,
+        "data/val_dijkstra_dataset.npz": 31
+      }
+    },
+    "2": {
+      "count": 24,
+      "pca_components_used": 5,
+      "explained_variance_ratio": [
+        0.5918939113616943,
+        0.1982058733701706,
+        0.07832526415586472,
+        0.03414670005440712,
+        0.024375153705477715
+      ],
+      "step_histogram": {
+        "49": 1,
+        "50": 3,
+        "51": 1,
+        "52": 2,
+        "53": 3,
+        "55": 2,
+        "56": 1,
+        "57": 1,
+        "58": 1,
+        "59": 3,
+        "62": 3,
+        "63": 3
+      },
+      "active_signature_histogram": {
+        "bf+dag_shortest_paths": 5,
+        "bf+dijkstra": 1,
+        "bf+prim": 1,
+        "dijkstra+dag_shortest_paths": 6,
+        "prim+dag_shortest_paths": 10,
+        "prim+dijkstra": 1
+      },
+      "source_dataset_histogram": {
+        "data/val_dataset.npz": 7,
+        "data/val_dijkstra_dataset.npz": 17
+      }
+    },
+    "1": {
+      "count": 32,
+      "pca_components_used": 5,
+      "explained_variance_ratio": [
+        0.631057620048523,
+        0.16119442880153656,
+        0.08309414237737656,
+        0.04079096391797066,
+        0.0352083295583725
+      ],
+      "step_histogram": {
+        "51": 1,
+        "54": 2,
+        "55": 2,
+        "56": 4,
+        "57": 2,
+        "58": 4,
+        "59": 3,
+        "60": 5,
+        "61": 4,
+        "62": 3,
+        "63": 2
+      },
+      "active_signature_histogram": {
+        "bf": 5,
+        "dag_shortest_paths": 19,
+        "dijkstra": 2,
+        "prim": 6
+      },
+      "source_dataset_histogram": {
+        "data/val_dataset.npz": 9,
+        "data/val_dijkstra_dataset.npz": 23
+      }
+    }
+  },
+  "inactive_step_summary": {
+    "bf": {
+      "count": 21,
+      "mean_step": 56.285714285714285,
+      "min_step": 46,
+      "max_step": 63
+    },
+    "bfs": {
+      "count": 300,
+      "mean_step": 4.286666666666667,
+      "min_step": 0,
+      "max_step": 25
+    },
+    "prim": {
+      "count": 19,
+      "mean_step": 56.578947368421055,
+      "min_step": 50,
+      "max_step": 63
+    },
+    "dijkstra": {
+      "count": 19,
+      "mean_step": 55.63157894736842,
+      "min_step": 48,
+      "max_step": 63
+    },
+    "dag_shortest_paths": {
+      "count": 17,
+      "mean_step": 56.35294117647059,
+      "min_step": 50,
+      "max_step": 62
+    }
+  },
+  "selected_graphs": [
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 0,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 1,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 3,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 2,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 3,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 11,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 4,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 25,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 5,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 6,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 7,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 8,
+      "rollout_steps": 57,
+      "inactive_steps": {
+        "bf": 55,
+        "bfs": 2,
+        "prim": 56,
+        "dijkstra": 55,
+        "dag_shortest_paths": 55
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 9,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 10,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 11,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 12,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 13,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 14,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 15,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 10,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 16,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 17,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 18,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 19,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 20,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 11,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 21,
+      "rollout_steps": 63,
+      "inactive_steps": {
+        "bf": 59,
+        "bfs": 9,
+        "prim": 58,
+        "dijkstra": 53,
+        "dag_shortest_paths": 62
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 22,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 23,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 3,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 24,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 25,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 12,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 26,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 27,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": 63,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 28,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 29,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 3,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 30,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 31,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 32,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 33,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 34,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 35,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 36,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 9,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 37,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 38,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 39,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 40,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 41,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 42,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 43,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 44,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 45,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 11,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 46,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 3,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 47,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 48,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 49,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 50,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 51,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 52,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 53,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 54,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 55,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": 62,
+        "dag_shortest_paths": 58
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 56,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 10,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 57,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 58,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 11,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 59,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 60,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 61,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 62,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 63,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 64,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 65,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 66,
+      "rollout_steps": 61,
+      "inactive_steps": {
+        "bf": 54,
+        "bfs": 9,
+        "prim": 59,
+        "dijkstra": 56,
+        "dag_shortest_paths": 60
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 67,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": 62,
+        "bfs": 6,
+        "prim": 63,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 68,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 69,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 70,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": 61,
+        "bfs": 3,
+        "prim": 62,
+        "dijkstra": 63,
+        "dag_shortest_paths": 61
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 71,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 10,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 72,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 10,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 73,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 74,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 3,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 75,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 3,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 76,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 77,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 78,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 11,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 79,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 80,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 81,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 82,
+      "rollout_steps": 57,
+      "inactive_steps": {
+        "bf": 56,
+        "bfs": 5,
+        "prim": 52,
+        "dijkstra": 53,
+        "dag_shortest_paths": 52
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 83,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 9,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 84,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 85,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 86,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 87,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 88,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 89,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 90,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 91,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": 55
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 92,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 9,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 93,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 94,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 95,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 96,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 97,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 9,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 98,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": 62,
+        "bfs": 10,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dataset.npz",
+      "dataset_graph_index": 99,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 9,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 0,
+      "rollout_steps": 59,
+      "inactive_steps": {
+        "bf": 57,
+        "bfs": 5,
+        "prim": 58,
+        "dijkstra": 56,
+        "dag_shortest_paths": 57
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 1,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 2,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 3,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 4,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 5,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 6,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 10,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 7,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 8,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": 59,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 9,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 10,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 11,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 12,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 13,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 14,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 15,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 16,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 17,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": 61,
+        "dijkstra": 58,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 18,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 19,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 20,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 21,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 10,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 22,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 23,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 24,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 25,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": 62,
+        "bfs": 10,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 26,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 11,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 27,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 28,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 9,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 29,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 30,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 31,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 9,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 32,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 33,
+      "rollout_steps": 60,
+      "inactive_steps": {
+        "bf": 58,
+        "bfs": 7,
+        "prim": 57,
+        "dijkstra": 59,
+        "dag_shortest_paths": 59
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 34,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 35,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 36,
+      "rollout_steps": 59,
+      "inactive_steps": {
+        "bf": 55,
+        "bfs": 7,
+        "prim": 58,
+        "dijkstra": 57,
+        "dag_shortest_paths": 57
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 37,
+      "rollout_steps": 52,
+      "inactive_steps": {
+        "bf": 49,
+        "bfs": 8,
+        "prim": 50,
+        "dijkstra": 49,
+        "dag_shortest_paths": 51
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 38,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 10,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 39,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 40,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 41,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 42,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 43,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 44,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 45,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 46,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 47,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 48,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 49,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 50,
+      "rollout_steps": 51,
+      "inactive_steps": {
+        "bf": 46,
+        "bfs": 9,
+        "prim": 50,
+        "dijkstra": 48,
+        "dag_shortest_paths": 50
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 51,
+      "rollout_steps": 62,
+      "inactive_steps": {
+        "bf": 58,
+        "bfs": 2,
+        "prim": 61,
+        "dijkstra": 58,
+        "dag_shortest_paths": 53
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 52,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 53,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 54,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 55,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 56,
+      "rollout_steps": 61,
+      "inactive_steps": {
+        "bf": 50,
+        "bfs": 5,
+        "prim": 54,
+        "dijkstra": 56,
+        "dag_shortest_paths": 60
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 57,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": 58,
+        "bfs": 7,
+        "prim": 61,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 58,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 10,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 59,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 60,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 3,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 61,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 62,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 63,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 64,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 5,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 65,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 66,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 9,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 67,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 68,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 12,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 69,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 3,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 70,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": 53,
+        "bfs": 7,
+        "prim": 50,
+        "dijkstra": 51,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 71,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 72,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 73,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 9,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 74,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 9,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 75,
+      "rollout_steps": 63,
+      "inactive_steps": {
+        "bf": 62,
+        "bfs": 7,
+        "prim": 58,
+        "dijkstra": 60,
+        "dag_shortest_paths": 60
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 76,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 77,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 9,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 78,
+      "rollout_steps": 57,
+      "inactive_steps": {
+        "bf": 53,
+        "bfs": 2,
+        "prim": 54,
+        "dijkstra": 56,
+        "dag_shortest_paths": 55
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 79,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 80,
+      "rollout_steps": 54,
+      "inactive_steps": {
+        "bf": 49,
+        "bfs": 8,
+        "prim": 53,
+        "dijkstra": 48,
+        "dag_shortest_paths": 53
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 81,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 82,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 83,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 84,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 20,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 85,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 6,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 86,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 87,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 9,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 88,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 10,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 89,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 90,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 91,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 92,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 93,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 9,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 94,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 95,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 2,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 96,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 7,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 97,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 98,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 8,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dijkstra_dataset.npz",
+      "dataset_graph_index": 99,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 3,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 0,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 1,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 2,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 3,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 4,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 5,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 6,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 7,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 8,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 9,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 10,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 11,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 12,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 13,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 14,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 15,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 16,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 17,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 18,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 19,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 20,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 21,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 22,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 23,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 24,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 25,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 26,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 27,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 28,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 29,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 30,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 31,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 32,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 33,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 34,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 35,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 36,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 37,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 38,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 39,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 40,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 41,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 42,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 43,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 44,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 45,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 46,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 47,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 48,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 49,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 50,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 51,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 52,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 53,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 54,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 55,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 56,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 57,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 58,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 59,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 60,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 61,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 62,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 63,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 64,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 65,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 66,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 67,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 68,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 69,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 70,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 71,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 72,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 73,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 74,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 75,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 76,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 77,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 78,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 79,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 80,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 81,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 82,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 83,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 84,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 85,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 86,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 87,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 88,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 89,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 90,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 91,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 92,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 93,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 94,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 95,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 96,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 97,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 98,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    },
+    {
+      "dataset_path": "data/val_dag_shortest_paths_dataset.npz",
+      "dataset_graph_index": 99,
+      "rollout_steps": 64,
+      "inactive_steps": {
+        "bf": null,
+        "bfs": 0,
+        "prim": null,
+        "dijkstra": null,
+        "dag_shortest_paths": null
+      }
+    }
+  ]
+}

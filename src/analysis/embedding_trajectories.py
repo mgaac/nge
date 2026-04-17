@@ -25,8 +25,11 @@ from src.utils.task_specs import (
     ANALYSIS_LATENT_CHOICES,
     build_node_algo_features,
     execution_step_counts,
+    feature_values_for_step,
+    input_feature_names,
     normalize_algorithm_order,
     supported_algorithms,
+    zero_feature_values,
 )
 
 
@@ -85,6 +88,26 @@ def parse_args() -> argparse.Namespace:
         choices=["max", "min", "mean"],
         default="max",
         help="Aggregation over node dimension to form per-step embeddings.",
+    )
+    parser.add_argument(
+        "--isolate-input-algorithm",
+        type=str,
+        choices=supported_algorithms(),
+        default=None,
+        help=(
+            "If provided, keep recurrent inputs only for this algorithm and zero "
+            "all other algorithm recurrent inputs at every step."
+        ),
+    )
+    parser.add_argument(
+        "--isolate-other-inputs-mode",
+        type=str,
+        choices=["zero_others", "final_others"],
+        default="zero_others",
+        help=(
+            "Behavior for non-selected algorithms when --isolate-input-algorithm is set: "
+            "'zero_others' keeps them at zero; 'final_others' pins them to their final state."
+        ),
     )
     parser.add_argument(
         "--step-policy",
@@ -226,15 +249,40 @@ def collect_graph_trajectory(
     latent_kind: str,
     node_agg: str,
     extra_steps: int,
+    isolate_input_algorithm: str | None = None,
+    isolate_other_inputs_mode: str = "zero_others",
 ) -> np.ndarray:
     num_nodes = graph_data["num_nodes"]
     previous_step_hidden_states = mx.zeros([num_nodes, model.processor_embed_dim])
     step_embeddings: List[np.ndarray] = []
+    final_feature_values: Dict[str, mx.array] | None = None
+    isolate_feature_names: tuple[str, ...] = ()
+    if isolate_input_algorithm is not None:
+        isolate_feature_names = input_feature_names((isolate_input_algorithm,))
+        if isolate_other_inputs_mode == "final_others":
+            final_step = max(execution_step_counts(graph_data, model.algorithms).values(), default=0)
+            final_feature_values = feature_values_for_step(
+                graph_data, final_step, model.algorithms
+            )
+        elif isolate_other_inputs_mode != "zero_others":
+            raise ValueError(
+                f"Unknown isolate_other_inputs_mode: {isolate_other_inputs_mode}"
+            )
 
     for feature_values in iter_execution_feature_values(
         graph_data, extra_steps, model.algorithms
     ):
-        node_algo_features = build_node_algo_features(feature_values, model.algorithms)
+        model_feature_values = feature_values
+        if isolate_input_algorithm is not None:
+            if isolate_other_inputs_mode == "zero_others":
+                model_feature_values = zero_feature_values(num_nodes, model.algorithms)
+            else:
+                assert final_feature_values is not None
+                model_feature_values = dict(final_feature_values)
+            for feature_name in isolate_feature_names:
+                model_feature_values[feature_name] = feature_values[feature_name]
+
+        node_algo_features = build_node_algo_features(model_feature_values, model.algorithms)
         input_embeddings = mx.concatenate(
             [previous_step_hidden_states, node_algo_features], axis=1
         )
@@ -376,9 +424,10 @@ def algorithm_reference_chain(
             continue
         mean_end_step = float(np.mean(np.array(end_steps, dtype=np.float64)))
         rounded_step = int(np.rint(mean_end_step))
-        if rounded_step < 0 or rounded_step >= num_steps:
+        if num_steps <= 0:
             continue
-        mask = step_indices == rounded_step
+        clamped_step = min(max(rounded_step, 0), num_steps - 1)
+        mask = step_indices == clamped_step
         if not np.any(mask):
             continue
         mean_coord = projected[mask].mean(axis=0)
@@ -386,7 +435,8 @@ def algorithm_reference_chain(
             {
                 "algorithm": algorithm,
                 "mean_end_step": mean_end_step,
-                "reference_step": rounded_step,
+                "reference_step": clamped_step,
+                "reference_step_raw": rounded_step,
                 "mean_coordinate": mean_coord.astype(np.float64, copy=False).tolist(),
             }
         )
@@ -661,10 +711,17 @@ def plot_step_trajectories(
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
     from matplotlib.lines import Line2D
 
     num_components = _plot_dimensions(points)
-    unique_steps, step_color_map = _build_discrete_color_map(step_indices)
+    cmap = matplotlib.colormaps["viridis"]
+    step_min = int(np.min(step_indices))
+    step_max = int(np.max(step_indices))
+    norm = mcolors.Normalize(
+        vmin=step_min,
+        vmax=step_max if step_max > step_min else step_min + 1,
+    )
 
     fig = plt.figure(figsize=(8, 7) if num_components == 3 else (7, 6))
     if num_components == 3:
@@ -699,7 +756,7 @@ def plot_step_trajectories(
                 alpha=0.14,
                 zorder=1,
             )
-        point_colors = np.array([step_color_map[int(step)] for step in graph_steps])
+        point_colors = cmap(norm(graph_steps))
         if num_components == 3:
             ax.scatter(
                 graph_points[:, 0],
@@ -865,20 +922,15 @@ def plot_step_trajectories(
                 )
             )
 
-    legend_handles = [
-        Line2D(
-            [0],
-            [0],
-            marker="o",
-            color="none",
-            markerfacecolor=step_color_map[int(step)],
-            markeredgecolor="black",
-            markeredgewidth=0.2,
-            markersize=5,
-            label=f"step {int(step)}",
-        )
-        for step in unique_steps
-    ]
+    colorbar = fig.colorbar(
+        matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap),
+        ax=ax,
+        pad=0.02,
+    )
+    colorbar.set_label("execution step")
+    colorbar.ax.tick_params(labelsize=8)
+
+    legend_handles: List[Line2D] = []
     if completion_probe_points is not None and completion_probe_points.size > 0:
         legend_handles.append(
             Line2D(
@@ -909,13 +961,12 @@ def plot_step_trajectories(
         )
     legend_handles.extend(reference_handles)
     if legend_handles:
-        ncols = 1 if len(legend_handles) <= 12 else 2 if len(legend_handles) <= 24 else 3
         ax.legend(
             handles=legend_handles,
-            title="Execution step",
-            loc="best",
+            title="Markers",
+            loc="upper right",
             fontsize=7,
-            ncol=ncols,
+            ncol=1,
             framealpha=0.9,
         )
 
@@ -947,12 +998,19 @@ def plot_step_trajectories_pairwise(
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
     from matplotlib.lines import Line2D
 
     if points.ndim != 2 or points.shape[1] <= max(axes):
         raise ValueError("Pairwise step plotting requires the requested PCA axes.")
 
-    unique_steps, step_color_map = _build_discrete_color_map(step_indices)
+    cmap = matplotlib.colormaps["viridis"]
+    step_min = int(np.min(step_indices))
+    step_max = int(np.max(step_indices))
+    norm = mcolors.Normalize(
+        vmin=step_min,
+        vmax=step_max if step_max > step_min else step_min + 1,
+    )
 
     fig, ax = plt.subplots(figsize=(7, 6))
     for graph_label in np.unique(graph_labels):
@@ -971,7 +1029,7 @@ def plot_step_trajectories_pairwise(
             alpha=0.14,
             zorder=1,
         )
-        point_colors = np.array([step_color_map[int(step)] for step in graph_steps])
+        point_colors = cmap(norm(graph_steps))
         ax.scatter(
             graph_points[:, axes[0]],
             graph_points[:, axes[1]],
@@ -1063,20 +1121,15 @@ def plot_step_trajectories_pairwise(
                 )
             )
 
-    legend_handles = [
-        Line2D(
-            [0],
-            [0],
-            marker="o",
-            color="none",
-            markerfacecolor=step_color_map[int(step)],
-            markeredgecolor="black",
-            markeredgewidth=0.2,
-            markersize=5,
-            label=f"step {int(step)}",
-        )
-        for step in unique_steps
-    ]
+    colorbar = fig.colorbar(
+        matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap),
+        ax=ax,
+        pad=0.02,
+    )
+    colorbar.set_label("execution step")
+    colorbar.ax.tick_params(labelsize=8)
+
+    legend_handles: List[Line2D] = []
     if completion_probe_points is not None and completion_probe_points.size > 0:
         legend_handles.append(
             Line2D(
@@ -1107,13 +1160,12 @@ def plot_step_trajectories_pairwise(
         )
     legend_handles.extend(reference_handles)
     if legend_handles:
-        ncols = 1 if len(legend_handles) <= 12 else 2 if len(legend_handles) <= 24 else 3
         ax.legend(
             handles=legend_handles,
-            title="Execution step",
-            loc="best",
+            title="Markers",
+            loc="upper right",
             fontsize=7,
-            ncol=ncols,
+            ncol=1,
             framealpha=0.9,
         )
 
@@ -1140,6 +1192,14 @@ def main() -> None:
         raise ValueError("--pca-components must be positive.")
     config, run_dir = resolve_config(args.config, args.run_dir)
     algorithm_order = normalize_algorithm_order(config.model.algorithms)
+    if (
+        args.isolate_input_algorithm is not None
+        and args.isolate_input_algorithm not in algorithm_order
+    ):
+        raise ValueError(
+            f"--isolate-input-algorithm={args.isolate_input_algorithm} is not present in "
+            f"the configured model algorithms: {algorithm_order}"
+        )
 
     dataset_path = resolve_dataset_path(
         args.dataset, args.split, config, algorithm_order=algorithm_order
@@ -1191,6 +1251,8 @@ def main() -> None:
             latent_kind=args.latent,
             node_agg=args.node_agg,
             extra_steps=args.extra_steps,
+            isolate_input_algorithm=args.isolate_input_algorithm,
+            isolate_other_inputs_mode=args.isolate_other_inputs_mode,
         )
         for graph in selected_graphs
     ]
@@ -1219,6 +1281,8 @@ def main() -> None:
             latent_kind=args.latent,
             node_agg=args.node_agg,
             extra_steps=args.extra_steps + 1,
+            isolate_input_algorithm=args.isolate_input_algorithm,
+            isolate_other_inputs_mode=args.isolate_other_inputs_mode,
         )
         if probe_trajectory.shape[0] == 0:
             continue
@@ -1242,26 +1306,23 @@ def main() -> None:
     step_pca_fit_matrix = pca_fit_tensor.reshape(num_graphs * pca_fit_steps, latent_dim)
     graph_indices, step_indices = build_stepwise_indices(selected_indices, num_steps)
 
+    output_artifact_name = (
+        f"embedding_trajectories_{Path(args.dataset).stem}"
+        if args.dataset is not None
+        else "embedding_trajectories"
+    )
+    if args.isolate_input_algorithm is not None:
+        output_artifact_name = f"{output_artifact_name}_iso_{args.isolate_input_algorithm}"
+        if args.isolate_other_inputs_mode == "final_others":
+            output_artifact_name = f"{output_artifact_name}_final_others"
+
     output_dir = (
         Path(args.output_dir)
         if args.output_dir
         else (
-            run_dir
-            / "analysis"
-            / (
-                f"embedding_trajectories_{Path(args.dataset).stem}"
-                if run_dir is not None and args.dataset is not None
-                else "embedding_trajectories"
-            )
+            run_dir / "analysis" / output_artifact_name
             if run_dir
-            else Path(
-                "analysis"
-            )
-            / (
-                f"embedding_trajectories_{Path(args.dataset).stem}"
-                if args.dataset is not None
-                else "embedding_trajectories"
-            )
+            else Path("analysis") / output_artifact_name
         )
     )
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1282,6 +1343,8 @@ def main() -> None:
         "config_name": config.name,
         "checkpoint_step": step,
         "algorithms": list(algorithm_order),
+        "isolate_input_algorithm": args.isolate_input_algorithm,
+        "isolate_other_inputs_mode": args.isolate_other_inputs_mode,
         "latent": args.latent,
         "node_agg": args.node_agg,
         "step_policy": args.step_policy,

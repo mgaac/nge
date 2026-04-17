@@ -18,7 +18,8 @@ from src.utils.task_specs import (
 )
 
 MULTITASK_TASK = "multitask"
-TASK_CHOICES = (MULTITASK_TASK, "dijkstra", "dag_shortest_paths")
+CLRS_ALGO_TASK = "clrs_algo"
+TASK_CHOICES = (MULTITASK_TASK, CLRS_ALGO_TASK, "dijkstra", "dag_shortest_paths")
 LEGACY_MULTITASK_KEYS = (
     "num_nodes",
     "edge_matrix",
@@ -479,6 +480,11 @@ def _sample_weighted_dag_edge_matrix(num_nodes: int, p: float) -> mx.array:
     return append_directed_edge_weights(dag_edge_matrix(num_nodes, p), num_nodes)
 
 
+def _sample_clrs_algo_edge_matrix(num_nodes: int, p: float) -> mx.array:
+    """Sample a shared DAG family used to execute all algorithms on the same graph."""
+    return _sample_weighted_dag_edge_matrix(num_nodes, p)
+
+
 def generated_dataset(
     num_graphs=100,
     num_nodes=20,
@@ -511,6 +517,37 @@ def generated_dataset(
                 "prim_state_targets": mx.array(prim_state, dtype=mx.float32),
                 "prim_key_targets": clean_key_log(prim_key),
                 "prim_predecessor_targets": clean_predecessor_log(prim_predecessor),
+            }
+
+        elif task == CLRS_ALGO_TASK:
+            edge_matrix = _sample_clrs_algo_edge_matrix(num_nodes, p)
+
+            bf_distance, bf_predecessor = bellman_ford_log(edge_matrix, source_node, num_nodes)
+            bfs_reachability = bfs_log(edge_matrix, source_node, num_nodes)
+            prim_state, prim_key, prim_predecessor = prim_log(edge_matrix, source_node, num_nodes)
+            dijkstra_distance, dijkstra_predecessor = dijkstra_log(
+                edge_matrix, source_node, num_nodes
+            )
+            dag_distance, dag_predecessor = dag_shortest_paths_log(
+                edge_matrix, source_node, num_nodes
+            )
+
+            graph_dict = {
+                "num_nodes": num_nodes,
+                "edge_matrix": edge_matrix,
+                "source_node": source_node,
+                "bf_distance_targets": clean_distance_log(bf_distance),
+                "bf_predecessor_targets": clean_predecessor_log(bf_predecessor),
+                "bfs_state_targets": mx.array(bfs_reachability, dtype=mx.float32),
+                "prim_state_targets": mx.array(prim_state, dtype=mx.float32),
+                "prim_key_targets": clean_key_log(prim_key),
+                "prim_predecessor_targets": clean_predecessor_log(prim_predecessor),
+                "dijkstra_distance_targets": clean_distance_log(dijkstra_distance),
+                "dijkstra_predecessor_targets": clean_predecessor_log(dijkstra_predecessor),
+                "dag_shortest_paths_distance_targets": clean_distance_log(dag_distance),
+                "dag_shortest_paths_predecessor_targets": clean_predecessor_log(
+                    dag_predecessor
+                ),
             }
 
         elif task == "dijkstra":
@@ -700,7 +737,8 @@ def _parse_args():
         choices=TASK_CHOICES,
         help=(
             "Dataset task family. "
-            "'multitask' reproduces the legacy bf/bfs/prim setup."
+            "'multitask' reproduces the legacy bf/bfs/prim setup. "
+            "'clrs_algo' runs bf/bfs/prim/dijkstra/dag_shortest_paths on the same graph."
         ),
     )
     parser.add_argument(

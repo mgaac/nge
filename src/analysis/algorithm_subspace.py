@@ -23,6 +23,34 @@ from src.utils.task_specs import (
 )
 
 
+def parse_algorithm_order_arg(raw_value: str) -> tuple[str, ...]:
+    items = tuple(part.strip() for part in raw_value.split(",") if part.strip())
+    if not items:
+        raise argparse.ArgumentTypeError(
+            "--algorithm-order must contain at least one comma-separated algorithm."
+        )
+
+    valid = set(supported_algorithms())
+    invalid = [algorithm for algorithm in items if algorithm not in valid]
+    if invalid:
+        raise argparse.ArgumentTypeError(
+            "Unknown algorithms in --algorithm-order: " + ", ".join(invalid)
+        )
+
+    duplicates = []
+    seen = set()
+    for algorithm in items:
+        if algorithm in seen and algorithm not in duplicates:
+            duplicates.append(algorithm)
+        seen.add(algorithm)
+    if duplicates:
+        raise argparse.ArgumentTypeError(
+            "Algorithms in --algorithm-order must be unique. Duplicates: "
+            + ", ".join(duplicates)
+        )
+    return items
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -65,13 +93,25 @@ def parse_args() -> argparse.Namespace:
         help="Algorithms to analyze: all, bf, bfs, or prim.",
     )
     parser.add_argument(
+        "--algorithm-order",
+        type=parse_algorithm_order_arg,
+        default=None,
+        help=(
+            "Optional comma-separated order for algorithms in the output matrices "
+            "and plots, for example: bf,bfs,prim,dijkstra,dag_shortest_paths. "
+            "Must include every algorithm present in the provided sources."
+        ),
+    )
+    parser.add_argument(
         "--membership-mode",
         type=str,
         default="active",
-        choices=["active", "exclusive"],
+        choices=["active", "exclusive", "isolated_inputs"],
         help=(
             "Use all deltas while an algorithm is active, or only deltas where it is "
-            "the sole active algorithm."
+            "the sole active algorithm. Use 'isolated_inputs' to consume per-algorithm "
+            "embedding_trajectories artifacts generated with "
+            "--isolate-input-algorithm and build each basis from its own isolated run."
         ),
     )
     parser.add_argument(
@@ -416,12 +456,65 @@ def explained_variance_ratio_in_subspace(data: np.ndarray, basis: np.ndarray) ->
     return float(max(0.0, 1.0 - residual_energy / total))
 
 
+def source_deltas(source: dict[str, Any]) -> np.ndarray:
+    return np.diff(source["extended_trajectories"].astype(np.float64), axis=1)
+
+
+def source_isolated_algorithm(source: dict[str, Any]) -> str | None:
+    isolated_algorithm = source["metadata"].get("isolate_input_algorithm")
+    if isolated_algorithm is None:
+        return None
+    return str(isolated_algorithm)
+
+
 def build_algorithm_delta_sets(
     sources: list[dict[str, Any]],
     selected_tasks: Dict[str, bool],
     membership_mode: str,
     algorithm_order: tuple[str, ...],
 ) -> Dict[str, dict]:
+    if membership_mode == "isolated_inputs":
+        algorithm_sets: Dict[str, dict] = {}
+        for algorithm in algorithm_order:
+            if not selected_tasks.get(algorithm, False):
+                continue
+            vectors: List[np.ndarray] = []
+            graph_labels: List[int] = []
+            step_labels: List[int] = []
+            graph_offset = 0
+            matching_sources = [
+                source
+                for source in sources
+                if source_isolated_algorithm(source) == algorithm
+            ]
+            for source in matching_sources:
+                source_algorithm_order = tuple(source["algorithm_order"])
+                deltas = source_deltas(source)
+                total_steps = int(deltas.shape[1])
+                selected_graph_indices = np.asarray(
+                    source["selected_graph_indices"], dtype=np.int32
+                )
+                dataset_payload = source["dataset_payload"]
+                for graph_row, graph_index in enumerate(selected_graph_indices.tolist()):
+                    step_counts = execution_step_counts_raw(
+                        dataset_payload, int(graph_index), source_algorithm_order
+                    )
+                    active_steps = min(total_steps, step_counts.get(algorithm, 0))
+                    for step in range(active_steps):
+                        vectors.append(deltas[graph_row, step])
+                        graph_labels.append(graph_offset + int(graph_index))
+                        step_labels.append(int(step))
+                graph_offset += int(selected_graph_indices.shape[0]) + 100000
+
+            if not vectors:
+                continue
+            algorithm_sets[algorithm] = {
+                "vectors": np.stack(vectors, axis=0).astype(np.float32, copy=False),
+                "graph_labels": np.array(graph_labels, dtype=np.int32),
+                "step_labels": np.array(step_labels, dtype=np.int32),
+            }
+        return algorithm_sets
+
     algorithm_sets: Dict[str, dict] = {}
     for algorithm in algorithm_order:
         if not selected_tasks.get(algorithm, False):
@@ -432,8 +525,8 @@ def build_algorithm_delta_sets(
         graph_offset = 0
         for source in sources:
             source_algorithm_order = tuple(source["algorithm_order"])
-            source_deltas = np.diff(source["extended_trajectories"].astype(np.float64), axis=1)
-            total_steps = int(source_deltas.shape[1])
+            deltas = source_deltas(source)
+            total_steps = int(deltas.shape[1])
             selected_graph_indices = np.asarray(source["selected_graph_indices"], dtype=np.int32)
             dataset_payload = source["dataset_payload"]
             for graph_row, graph_index in enumerate(selected_graph_indices.tolist()):
@@ -450,7 +543,7 @@ def build_algorithm_delta_sets(
                         )
                     if not is_active:
                         continue
-                    vectors.append(source_deltas[graph_row, step])
+                    vectors.append(deltas[graph_row, step])
                     graph_labels.append(graph_offset + int(graph_index))
                     step_labels.append(int(step))
             graph_offset += int(selected_graph_indices.shape[0]) + 100000
@@ -471,11 +564,15 @@ def inactive_vectors_for_algorithm(
     membership_mode: str,
     algorithm_order: tuple[str, ...],
 ) -> np.ndarray:
+    if membership_mode == "isolated_inputs":
+        latent_dim = int(sources[0]["extended_trajectories"].shape[2])
+        return np.empty((0, latent_dim), dtype=np.float32)
+
     vectors: List[np.ndarray] = []
     for source in sources:
         source_algorithm_order = tuple(source["algorithm_order"])
-        source_deltas = np.diff(source["extended_trajectories"].astype(np.float64), axis=1)
-        total_steps = int(source_deltas.shape[1])
+        deltas = source_deltas(source)
+        total_steps = int(deltas.shape[1])
         selected_graph_indices = np.asarray(source["selected_graph_indices"], dtype=np.int32)
         dataset_payload = source["dataset_payload"]
         for graph_row, graph_index in enumerate(selected_graph_indices.tolist()):
@@ -492,11 +589,44 @@ def inactive_vectors_for_algorithm(
                     )
                 if is_active:
                     continue
-                vectors.append(source_deltas[graph_row, step])
+                vectors.append(deltas[graph_row, step])
     if not vectors:
         latent_dim = int(sources[0]["extended_trajectories"].shape[2])
         return np.empty((0, latent_dim), dtype=np.float32)
     return np.stack(vectors, axis=0).astype(np.float32, copy=False)
+
+
+def validate_isolated_input_sources(
+    sources: list[dict[str, Any]],
+    requested_algorithms: list[str],
+) -> None:
+    missing_metadata = [
+        str(source["dir"])
+        for source in sources
+        if source_isolated_algorithm(source) is None
+    ]
+    if missing_metadata:
+        raise ValueError(
+            "membership_mode=isolated_inputs requires every source artifact to include "
+            "metadata.isolate_input_algorithm. Missing in: "
+            + ", ".join(missing_metadata)
+        )
+
+    available_algorithms = {
+        source_isolated_algorithm(source)
+        for source in sources
+        if source_isolated_algorithm(source) is not None
+    }
+    missing_algorithms = [
+        algorithm
+        for algorithm in requested_algorithms
+        if algorithm not in available_algorithms
+    ]
+    if missing_algorithms:
+        raise ValueError(
+            "membership_mode=isolated_inputs is missing sources for: "
+            + ", ".join(missing_algorithms)
+        )
 
 
 def main() -> None:
@@ -509,10 +639,24 @@ def main() -> None:
         if any(algorithm in source["algorithm_order"] for source in sources)
     ]
     algorithm_order = normalize_algorithm_order(present_algorithms)
+    if args.algorithm_order is not None:
+        missing_present = [
+            algorithm for algorithm in present_algorithms if algorithm not in args.algorithm_order
+        ]
+        if missing_present:
+            raise ValueError(
+                "--algorithm-order must include every algorithm present in the provided "
+                "sources. Missing: " + ", ".join(missing_present)
+            )
+        algorithm_order = tuple(
+            algorithm for algorithm in args.algorithm_order if algorithm in present_algorithms
+        )
     selected_tasks = resolve_selected_tasks(args.tasks, algorithm_order)
     requested_algorithms = [
         algorithm for algorithm in algorithm_order if selected_tasks.get(algorithm, False)
     ]
+    if args.membership_mode == "isolated_inputs":
+        validate_isolated_input_sources(sources, requested_algorithms)
 
     algorithm_sets = build_algorithm_delta_sets(
         sources=sources,
@@ -664,20 +808,34 @@ def main() -> None:
         output_path=output_dir / "active_vs_inactive_explained_variance.png",
     )
 
+    if args.membership_mode == "isolated_inputs":
+        unique_graph_refs = {
+            (str(source["metadata"]["dataset"]), int(graph_index))
+            for source in sources
+            for graph_index in np.asarray(source["selected_graph_indices"], dtype=np.int32).tolist()
+        }
+        summary_num_graphs = int(len(unique_graph_refs))
+    else:
+        summary_num_graphs = int(
+            sum(int(np.asarray(source["selected_graph_indices"]).shape[0]) for source in sources)
+        )
+
     summary = {
         "source_trajectories_dirs": [str(path) for path in source_dirs],
         "source_datasets": [source["metadata"]["dataset"] for source in sources],
         "algorithms": list(algorithm_order),
         "latent": sources[0]["metadata"].get("latent"),
         "node_agg": sources[0]["metadata"].get("node_agg"),
-        "num_graphs": int(
-            sum(int(np.asarray(source["selected_graph_indices"]).shape[0]) for source in sources)
-        ),
+        "num_graphs": summary_num_graphs,
         "uses_terminal_probe_extension": any(
             source["terminal_probes"] is not None for source in sources
         ),
         "membership_mode": args.membership_mode,
+        "source_isolate_input_algorithms": [
+            source_isolated_algorithm(source) for source in sources
+        ],
         "tasks": args.tasks,
+        "algorithm_order": list(algorithm_order),
         "requested_algorithms": requested_algorithms,
         "omitted_algorithms": omitted_algorithms,
         "num_sources": len(sources),

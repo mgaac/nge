@@ -7,7 +7,7 @@ It trains a message-passing model to predict algorithm state transitions with a 
 
 | Area | What is implemented |
 | --- | --- |
-| Data | Synthetic graph datasets for the legacy BF/BFS/Prim multitask setup plus single-task Dijkstra and DAG shortest paths datasets, schema-driven `.npz` serialization |
+| Data | Synthetic graph datasets for the legacy BF/BFS/Prim multitask setup, a unified `clrs_algo` all-task dataset (all five algorithms per graph), plus single-task Dijkstra and DAG shortest paths datasets, schema-driven `.npz` serialization |
 | Model | Shared encoder/processor architecture with configurable algorithm sets and per-algorithm heads (`state_mask`, `shortest_path`, `mst`) |
 | Training | Config-driven runs, checkpointing, resume, JSONL metrics, optional W&B logging, explicit `mx.eval(...)` barriers for stable MLX gradient accumulation |
 | Evaluation | Loss/accuracy reporting, eval-only mode, configurable task masking, failure-mode analysis and debug traces |
@@ -61,6 +61,15 @@ Generate DAG shortest paths-only splits:
 conda run -n mlx python -m src.data.dataset \
   --preset \
   --task dag_shortest_paths \
+  --output-dir data
+```
+
+Generate unified all-task splits where each graph executes all five algorithms (`bf`, `bfs`, `prim`, `dijkstra`, `dag_shortest_paths`) on the same input graph:
+
+```bash
+conda run -n mlx python -m src.data.dataset \
+  --preset \
+  --task clrs_algo \
   --output-dir data
 ```
 
@@ -296,16 +305,18 @@ failed runs up to `MAX_RETRIES` times (default `5`). Override defaults with
 
 The collector scans `runs/` for the latest run matching each generated experiment name, then writes:
 
-- a primary transfer delta matrix (`<split>_primary_transfer_delta.csv/.png`)
+- a primary transfer relative-change matrix (`<split>_primary_transfer_delta.csv/.png`)
 - the corresponding raw primary matrix (`<split>_primary_transfer_matrix_raw.csv/.png`)
 - one raw and one delta matrix per task metric (for example `test_bfs_state_delta.csv`)
 - `pair_results` metadata in `<split>_transfer_matrix_summary.json`
 
-Primary metrics are chosen per target task as the last non-termination accuracy for that task, i.e. `bfs_state`, `bf_predecessor`, `prim_predecessor`, `dijkstra_predecessor`, and `dag_shortest_paths_predecessor`.
+Primary matrix values are built per target task as the mean of all non-termination
+accuracies for that task (for example BF averages `bf_distance` and
+`bf_predecessor`; Prim averages `prim_state`, `prim_key`, and `prim_predecessor`).
 Scaffolding validates processor compatibility before emitting configs, and training re-checks the same constraint before copying the frozen processor. Legacy multi-branch source runs are rejected for the canonical single-task transfer matrix.
 If the off-diagonal transfer runs are present but the diagonal self-transfer runs were never trained, the collector fills the diagonal from the source bank runs referenced by the manifest.
 The `collect` path only reads configs and `metrics.jsonl`; it does not need to load MLX models.
-Delta matrices are column-wise: for each target task, the baseline is the maximum score achieved with that task's own processor (source-bank baseline and, if present, a trained diagonal self-transfer run), and every entry is reported as `transfer_score - own_processor_max`.
+Primary relative-change matrices are column-wise: for each target task, the baseline is the own-processor run for that task (diagonal self-transfer when available, otherwise source-bank baseline), and every entry is reported as `100 * (transfer_score - baseline) / baseline`.
 To verify that the source bank and the completed transfer runs used the same shared hyperparameters and all reached the configured epoch count, run:
 
 ```bash
@@ -322,13 +333,17 @@ This writes `run_consistency_audit.json` inside the matrix directory. The audit 
 | --- | --- |
 | `src.analysis.latent_convergence` | Distance-to-final / successive latent change plots + JSON for any configured algorithm set |
 | `src.analysis.embedding_trajectories` | Trajectories + step/trajectory PCA artifacts for any configured algorithm set |
+| `src.analysis.per_step_group_pca` | Independent PCA at each fixed execution step `t` (across graphs), with per-step components/projections/variance summaries |
+| `src.analysis.step_dynamics_diagnostics` | Global fixed-basis PCA projection, per-step/per-algorithm covariance spectra, cumulative variance curves, and principal-angle subspace drift |
 | `src.analysis.algorithm_subspace` | Algorithm-specific latent-delta subspace overlap / explained-variance analysis from `embedding_trajectories` artifacts |
+| `src.analysis.execution_segment_pca` | PCA over simultaneous autoregressive rollout segments grouped by the number of branches still active |
 | `src.analysis.execution_length_step_overlay` | Overlayed average trajectories across execution lengths |
 | `src.analysis.extra_step_state_dynamics` | Fake-continuation dynamics and stabilization diagnostics across BF/BFS/Prim states |
 | `src.analysis.dataset_step_distribution` | Per-algorithm step distribution plots + summary JSON for the algorithms present in a dataset |
 | `src.analysis.pc_monotonicity` | Spearman/monotonicity checks between sequential latent distances and PCA coordinates near task termination |
 | `src.analysis.termination_threshold_sweep` | Threshold vs per-algorithm termination-accuracy curves |
 | `src.analysis.transfer_matrix` | Frozen-processor transfer-matrix config generation and result aggregation |
+| `src.analysis.transfer_subspace_correlation` | Correlate ordered transfer deltas against directional cross-explained-variance and symmetric subspace overlap |
 | `src.analysis.eval_test_100n_triplet` | Test-only 100n eval for normal/frozen-random/identity runs + comparison CSV/JSON/plot |
 
 Example:
@@ -351,9 +366,54 @@ It also overlays a fixed baseline line using the provided expected accuracies:
 `bfs=0.679`, `bf=0.291`, `prim=0.314`, `dijkstra=0.161`, `dag_shortest_paths=0.260`.
 
 `src.analysis.embedding_trajectories` supports `--pca-components 2` and `--pca-components 3`; when plotting is enabled, three components produce a 3D PCA figure plus pairwise perspective views for `PC1-PC2`, `PC1-PC3`, and `PC2-PC3`. Step-wise PCA plots also overlay BF→BFS and BF→Prim reference segments built from the mean algorithm termination steps of the selected graphs.
+Step-wise plots now use a compact step-index colorbar instead of per-step legend entries, so large step ranges do not consume plot area with oversized keys.
+`src.analysis.per_step_group_pca` answers a complementary question: for each fixed execution step `t`, it collects all graph embeddings at that step and fits a separate PCA inside that step-group. The script writes `per_step_group_pca.npz` (per-step projections/components/means/variance) and `summary.json` (per-step explained-variance entries).
+`src.analysis.step_dynamics_diagnostics` runs four diagnostics on top of an `embedding_trajectories` artifact in one pass: (1) fit one global PCA over all steps/graphs and project every step cloud into that fixed basis, (2) compute per-algorithm active-set covariance spectra at each step, (3) plot cumulative per-step variance (`lambda_1`, `lambda_1+lambda_2`, `lambda_1+lambda_2+lambda_3`) over time, and (4) measure consecutive-step subspace drift via principal angles. It writes `diagnostics.npz`, `summary.json`, and four plots (`cumulative_variance_over_time.png`, `global_basis_cumulative_variance_over_time.png`, `principal_angle_drift.png`, `per_algorithm_cumulative_variance_top3.png`).
 `src.analysis.embedding_trajectories` also supports `--execution-window {all,<algorithm>}` for every supported algorithm (`bf`, `bfs`, `prim`, `dijkstra`, `dag_shortest_paths`) and truncates the analyzed prefix to the steps where that algorithm is still executing.
-When `src.analysis.embedding_trajectories` is called with an explicit `--dataset` and no `--output-dir`, it now writes to `embedding_trajectories_<dataset_stem>` to avoid overwriting previous artifacts from other datasets.
-`src.analysis.algorithm_subspace` consumes one or more `embedding_trajectories` artifacts, uses the algorithm lists stored in their metadata, converts trajectories into per-step latent deltas, partitions those deltas by algorithm-active or algorithm-exclusive execution phases, and compares the resulting PCA subspaces via mean canonical correlations and cross explained-variance heatmaps. When invoked with only `--run-dir`, it auto-discovers full-window `embedding_trajectories*` artifacts under `runs/<name>/analysis/`. This is the intended path for CLRS-style mixed-task runs: keep BF/BFS/Prim in the shared legacy artifact and generate separate `embedding_trajectories_<algorithm>` artifacts for task-specific datasets such as Dijkstra and DAG shortest paths. Algorithms without active steps in the available sources are skipped and reported explicitly in the summary JSON.
+Reference endpoints are clamped to the plotted step window, so algorithms whose mean end step falls one step beyond the visible range (for example DAG shortest paths at the shared horizon) still get a plotted endpoint marker.
+When `src.analysis.embedding_trajectories` is called with an explicit `--dataset` and no `--output-dir`, it writes to `embedding_trajectories_<dataset_stem>` to avoid overwriting previous artifacts from other datasets. When `--isolate-input-algorithm <algo>` is set, it can either zero other recurrent inputs (`--isolate-other-inputs-mode zero_others`, default) or pin them to their final state (`--isolate-other-inputs-mode final_others`) while only the selected algorithm keeps its step-varying inputs. The `final_others` mode writes to `embedding_trajectories_<dataset_stem>_iso_<algo>_final_others`.
+`src.analysis.algorithm_subspace` consumes one or more `embedding_trajectories` artifacts, uses the algorithm lists stored in their metadata, converts trajectories into per-step latent deltas, partitions those deltas by algorithm-active or algorithm-exclusive execution phases, and compares the resulting PCA subspaces via mean canonical correlations and cross explained-variance heatmaps. When invoked with only `--run-dir`, it auto-discovers full-window `embedding_trajectories*` artifacts under `runs/<name>/analysis/`. This is the intended path for CLRS-style mixed-task runs: keep BF/BFS/Prim in the shared legacy artifact and generate separate `embedding_trajectories_<algorithm>` artifacts for task-specific datasets such as Dijkstra and DAG shortest paths. Algorithms without active steps in the available sources are skipped and reported explicitly in the summary JSON. Use `--algorithm-order bf,bfs,prim,dijkstra,dag_shortest_paths` when you need a specific row/column and plot order, for example while comparing isolated single-task models.
+For strict per-algorithm input isolation (basis for each algorithm built from runs where only that algorithm's recurrent inputs are non-zero), generate one isolated trajectories artifact per algorithm and run subspace with `--membership-mode isolated_inputs`:
+
+```bash
+for algo in bf bfs prim dijkstra dag_shortest_paths; do
+  conda run -n mlx python -m src.analysis.embedding_trajectories \
+    --run-dir runs/<full_model_run> \
+    --dataset data/val_clrs_algo_dataset.npz \
+    --isolate-input-algorithm "$algo"
+done
+
+conda run -n mlx python -m src.analysis.algorithm_subspace \
+  --membership-mode isolated_inputs \
+  --tasks all \
+  --trajectories-dir runs/<full_model_run>/analysis/embedding_trajectories_val_clrs_algo_dataset_iso_bf \
+  --trajectories-dir runs/<full_model_run>/analysis/embedding_trajectories_val_clrs_algo_dataset_iso_bfs \
+  --trajectories-dir runs/<full_model_run>/analysis/embedding_trajectories_val_clrs_algo_dataset_iso_prim \
+  --trajectories-dir runs/<full_model_run>/analysis/embedding_trajectories_val_clrs_algo_dataset_iso_dijkstra \
+  --trajectories-dir runs/<full_model_run>/analysis/embedding_trajectories_val_clrs_algo_dataset_iso_dag_shortest_paths
+```
+
+To isolate each basis with non-selected algorithms fixed at final state instead of zero:
+
+```bash
+for algo in bf bfs prim dijkstra dag_shortest_paths; do
+  conda run -n mlx python -m src.analysis.embedding_trajectories \
+    --run-dir runs/<full_model_run> \
+    --dataset data/val_clrs_algo_dataset.npz \
+    --isolate-input-algorithm "$algo" \
+    --isolate-other-inputs-mode final_others
+done
+```
+`src.analysis.execution_segment_pca` answers a different question: it runs a simultaneous autoregressive rollout for every configured branch, tracks how many branches are still active at each step, partitions the latent execution states by that active-count, and fits a separate PCA inside each segment. By default, branch activity is defined by branch-specific recurrent state change (`--activity-source state_change`), which is the correct default for shared-distance-termination runs because `termination_mode=distance` emits the same termination logit for every branch. Set `--activity-source termination` only when you explicitly want to segment by the configured termination head/distance rule instead. The script writes per-segment PCA scatter plots plus a grouped explained-variance plot for the first `k` PCs (default `k=2`). When `data.task_paths` is present and `--dataset` is omitted, it analyzes all unique split datasets referenced by the config, so a full CLRS run can contribute graphs from the legacy BF/BFS/Prim family plus Dijkstra and DAG-shortest-paths families in one pass. This is the correct path when you want the model's own simultaneous `5 active -> 4 active -> ...` rollout dynamics instead of ground-truth dataset execution lengths:
+
+```bash
+conda run -n mlx python -m src.analysis.execution_segment_pca \
+  --run-dir runs/<full_model_run> \
+  --max-rollout-steps 64 \
+  --activity-source state_change
+```
+
+`src.analysis.transfer_subspace_correlation` joins a transfer-matrix summary with an `algorithm_subspace` summary, constructs ordered source→target pairs, and reports Pearson/Spearman correlations between transfer deltas and three geometric predictors: target-in-source directional containment, the flipped directional read, and symmetric mean canonical correlation. It also writes scatter plots and an ordered-pair CSV so directional mistakes are easy to spot.
 `src.analysis.pc_monotonicity` and `src.analysis.termination_threshold_sweep` now respect the run's configured algorithm set; use `--tasks <algorithm>` to analyze only one branch.
 For configs with `data.task_paths`, analysis defaults to the shared legacy BF/BFS/Prim dataset when one exists. To analyze task-specific datasets such as Dijkstra or DAG shortest paths, pass `--dataset` explicitly.
 

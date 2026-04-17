@@ -1,0 +1,422 @@
+{
+  "subspace_summary": "/Users/miguelgarcia/Programming/nar/nge/analysis/algorithm_subspace_isolated_models_k5/summary.json",
+  "transfer_summary": "/Users/miguelgarcia/Programming/nar/nge/experiments/graph_trasnfer_matrix/val_transfer_matrix_summary.json",
+  "algorithm_order": [
+    "bf",
+    "bfs",
+    "prim",
+    "dijkstra",
+    "dag_shortest_paths"
+  ],
+  "pair_count": 20,
+  "predictor_definitions": {
+    "containment_target_in_source": "cross_explained_variance[source, target]: fraction of target variance explained by the source basis. This matches transfer source->target under the implementation where rows are basis algorithms and columns are evaluated target deltas.",
+    "containment_source_in_target": "cross_explained_variance[target, source]: the flipped directional read.",
+    "symmetric_overlap": "subspace_overlap_mean_canonical_corr[source, target]: mean canonical correlation."
+  },
+  "response_definitions": {
+    "transfer_raw_delta": "primary score(source->target) - own-processor baseline(target), where the primary score follows transfer_summary['primary_metrics'] when available and otherwise falls back to the mean non-termination accuracy.",
+    "transfer_relative_delta_percent": "100 * (primary score(source->target) - baseline(target)) / baseline(target), with the same primary-score definition as above."
+  },
+  "target_baselines": {
+    "bf": 0.882106602191925,
+    "bfs": 1.0,
+    "prim": 0.7283791899681091,
+    "dijkstra": 0.8654171824455261,
+    "dag_shortest_paths": 0.9874491095542908
+  },
+  "correlations": {
+    "transfer_raw_delta": {
+      "containment_target_in_source": {
+        "num_pairs": 20,
+        "pearson": 0.09838740117266287,
+        "spearman": -0.05864661654135337
+      },
+      "containment_source_in_target": {
+        "num_pairs": 20,
+        "pearson": -0.16587564392728082,
+        "spearman": -0.23308270676691725
+      },
+      "symmetric_overlap": {
+        "num_pairs": 20,
+        "pearson": -0.1366218818455489,
+        "spearman": -0.2865739202284838
+      }
+    },
+    "transfer_relative_delta_percent": {
+      "containment_target_in_source": {
+        "num_pairs": 20,
+        "pearson": 0.13492848035478935,
+        "spearman": -0.05864661654135337
+      },
+      "containment_source_in_target": {
+        "num_pairs": 20,
+        "pearson": -0.14615871514536322,
+        "spearman": -0.23308270676691725
+      },
+      "symmetric_overlap": {
+        "num_pairs": 20,
+        "pearson": -0.1083762817218123,
+        "spearman": -0.2865739202284838
+      }
+    }
+  },
+  "largest_residual_outliers": {
+    "transfer_raw_delta": [
+      {
+        "pair": "dijkstra->prim",
+        "source": "dijkstra",
+        "target": "prim",
+        "predictor": 0.18684729648598486,
+        "response": -0.05862671136856079,
+        "residual": -0.04759423664135598,
+        "abs_residual": 0.04759423664135598
+      },
+      {
+        "pair": "dag_shortest_paths->prim",
+        "source": "dag_shortest_paths",
+        "target": "prim",
+        "predictor": 0.15027621685434822,
+        "response": -0.04289466142654419,
+        "residual": -0.031186327836239515,
+        "abs_residual": 0.031186327836239515
+      },
+      {
+        "pair": "bfs->bf",
+        "source": "bfs",
+        "target": "bf",
+        "predictor": 0.09292785791669878,
+        "response": 0.01661217212677002,
+        "residual": 0.02938034308208136,
+        "abs_residual": 0.02938034308208136
+      },
+      {
+        "pair": "bf->prim",
+        "source": "bf",
+        "target": "prim",
+        "predictor": 0.18066970548094885,
+        "response": -0.04046601057052612,
+        "residual": -0.02931936968592552,
+        "abs_residual": 0.02931936968592552
+      },
+      {
+        "pair": "prim->bf",
+        "source": "prim",
+        "target": "bf",
+        "predictor": 0.25262294886090075,
+        "response": 0.011690139770507812,
+        "residual": 0.0215070349173027,
+        "abs_residual": 0.0215070349173027
+      }
+    ],
+    "transfer_relative_delta_percent": [
+      {
+        "pair": "dijkstra->prim",
+        "source": "dijkstra",
+        "target": "prim",
+        "predictor": 0.18684729648598486,
+        "response": -8.048927286229535,
+        "residual": -6.516492459588366,
+        "abs_residual": 6.516492459588366
+      },
+      {
+        "pair": "dag_shortest_paths->prim",
+        "source": "dag_shortest_paths",
+        "target": "prim",
+        "predictor": 0.15027621685434822,
+        "response": -5.889056416949839,
+        "residual": -4.231780561847435,
+        "abs_residual": 4.231780561847435
+      },
+      {
+        "pair": "bf->prim",
+        "source": "bf",
+        "target": "prim",
+        "predictor": 0.18066970548094885,
+        "response": -5.555624203417709,
+        "residual": -4.002101215796616,
+        "abs_residual": 4.002101215796616
+      },
+      {
+        "pair": "bfs->bf",
+        "source": "bfs",
+        "target": "bf",
+        "predictor": 0.09292785791669878,
+        "response": 1.8832386114661017,
+        "residual": 3.736281946841273,
+        "abs_residual": 3.736281946841273
+      },
+      {
+        "pair": "prim->bf",
+        "source": "prim",
+        "target": "bf",
+        "predictor": 0.25262294886090075,
+        "response": 1.3252524968591406,
+        "residual": 2.633151975544936,
+        "abs_residual": 2.633151975544936
+      }
+    ]
+  },
+  "pairs": [
+    {
+      "pair": "bf->bfs",
+      "source": "bf",
+      "target": "bfs",
+      "source_label": "Bellman-Ford",
+      "target_label": "BFS",
+      "transfer_raw": 0.9992750287055969,
+      "transfer_raw_delta": -0.0007249712944030762,
+      "transfer_relative_delta_percent": -0.07249712944030762,
+      "containment_target_in_source": 0.1260133564158361,
+      "containment_source_in_target": 0.09292785791669878,
+      "symmetric_overlap": 0.26588091420728144
+    },
+    {
+      "pair": "bf->dag_shortest_paths",
+      "source": "bf",
+      "target": "dag_shortest_paths",
+      "source_label": "Bellman-Ford",
+      "target_label": "DAG Shortest Paths",
+      "transfer_raw": 0.9868136048316956,
+      "transfer_raw_delta": -0.0006355047225952148,
+      "transfer_relative_delta_percent": -0.06435822529447269,
+      "containment_target_in_source": 0.20775256364548955,
+      "containment_source_in_target": 0.35000068906913107,
+      "symmetric_overlap": 0.40601135728609766
+    },
+    {
+      "pair": "bf->dijkstra",
+      "source": "bf",
+      "target": "dijkstra",
+      "source_label": "Bellman-Ford",
+      "target_label": "Dijkstra",
+      "transfer_raw": 0.857912003993988,
+      "transfer_raw_delta": -0.007505178451538086,
+      "transfer_relative_delta_percent": -0.8672324289113015,
+      "containment_target_in_source": 0.3316729790378006,
+      "containment_source_in_target": 0.4197209336341795,
+      "symmetric_overlap": 0.4108819500404465
+    },
+    {
+      "pair": "bf->prim",
+      "source": "bf",
+      "target": "prim",
+      "source_label": "Bellman-Ford",
+      "target_label": "Prim",
+      "transfer_raw": 0.687913179397583,
+      "transfer_raw_delta": -0.04046601057052612,
+      "transfer_relative_delta_percent": -5.555624203417709,
+      "containment_target_in_source": 0.18066970548094885,
+      "containment_source_in_target": 0.25262294886090075,
+      "symmetric_overlap": 0.38745459653756614
+    },
+    {
+      "pair": "bfs->bf",
+      "source": "bfs",
+      "target": "bf",
+      "source_label": "BFS",
+      "target_label": "Bellman-Ford",
+      "transfer_raw": 0.8987187743186951,
+      "transfer_raw_delta": 0.01661217212677002,
+      "transfer_relative_delta_percent": 1.8832386114661017,
+      "containment_target_in_source": 0.09292785791669878,
+      "containment_source_in_target": 0.1260133564158361,
+      "symmetric_overlap": 0.2658809142072814
+    },
+    {
+      "pair": "bfs->dag_shortest_paths",
+      "source": "bfs",
+      "target": "dag_shortest_paths",
+      "source_label": "BFS",
+      "target_label": "DAG Shortest Paths",
+      "transfer_raw": 0.9869588613510132,
+      "transfer_raw_delta": -0.0004902482032775879,
+      "transfer_relative_delta_percent": -0.04964794626214949,
+      "containment_target_in_source": 0.16805256675017743,
+      "containment_source_in_target": 0.30455669435975696,
+      "symmetric_overlap": 0.3253446730928681
+    },
+    {
+      "pair": "bfs->dijkstra",
+      "source": "bfs",
+      "target": "dijkstra",
+      "source_label": "BFS",
+      "target_label": "Dijkstra",
+      "transfer_raw": 0.8510971665382385,
+      "transfer_raw_delta": -0.014320015907287598,
+      "transfer_relative_delta_percent": -1.65469512250977,
+      "containment_target_in_source": 0.26237573453199436,
+      "containment_source_in_target": 0.20264931666258634,
+      "symmetric_overlap": 0.3936506775364604
+    },
+    {
+      "pair": "bfs->prim",
+      "source": "bfs",
+      "target": "prim",
+      "source_label": "BFS",
+      "target_label": "Prim",
+      "transfer_raw": 0.6994666457176208,
+      "transfer_raw_delta": -0.02891254425048828,
+      "transfer_relative_delta_percent": -3.9694357895856647,
+      "containment_target_in_source": 0.20265294772109244,
+      "containment_source_in_target": 0.19925309668981583,
+      "symmetric_overlap": 0.348701977994073
+    },
+    {
+      "pair": "dag_shortest_paths->bf",
+      "source": "dag_shortest_paths",
+      "target": "bf",
+      "source_label": "DAG Shortest Paths",
+      "target_label": "Bellman-Ford",
+      "transfer_raw": 0.8912542462348938,
+      "transfer_raw_delta": 0.00914764404296875,
+      "transfer_relative_delta_percent": 1.037022511818639,
+      "containment_target_in_source": 0.35000068906913107,
+      "containment_source_in_target": 0.20775256364548955,
+      "symmetric_overlap": 0.40601135728609766
+    },
+    {
+      "pair": "dag_shortest_paths->bfs",
+      "source": "dag_shortest_paths",
+      "target": "bfs",
+      "source_label": "DAG Shortest Paths",
+      "target_label": "BFS",
+      "transfer_raw": 0.9997749924659729,
+      "transfer_raw_delta": -0.0002250075340270996,
+      "transfer_relative_delta_percent": -0.02250075340270996,
+      "containment_target_in_source": 0.30455669435975696,
+      "containment_source_in_target": 0.16805256675017743,
+      "symmetric_overlap": 0.325344673092868
+    },
+    {
+      "pair": "dag_shortest_paths->dijkstra",
+      "source": "dag_shortest_paths",
+      "target": "dijkstra",
+      "source_label": "DAG Shortest Paths",
+      "target_label": "Dijkstra",
+      "transfer_raw": 0.8534983992576599,
+      "transfer_raw_delta": -0.011918783187866211,
+      "transfer_relative_delta_percent": -1.3772297834653222,
+      "containment_target_in_source": 0.4794941365220693,
+      "containment_source_in_target": 0.29557505509432935,
+      "symmetric_overlap": 0.5048261583750114
+    },
+    {
+      "pair": "dag_shortest_paths->prim",
+      "source": "dag_shortest_paths",
+      "target": "prim",
+      "source_label": "DAG Shortest Paths",
+      "target_label": "Prim",
+      "transfer_raw": 0.6854845285415649,
+      "transfer_raw_delta": -0.04289466142654419,
+      "transfer_relative_delta_percent": -5.889056416949839,
+      "containment_target_in_source": 0.15027621685434822,
+      "containment_source_in_target": 0.1572527847488766,
+      "symmetric_overlap": 0.34754068440118496
+    },
+    {
+      "pair": "dijkstra->bf",
+      "source": "dijkstra",
+      "target": "bf",
+      "source_label": "Dijkstra",
+      "target_label": "Bellman-Ford",
+      "transfer_raw": 0.8712904453277588,
+      "transfer_raw_delta": -0.01081615686416626,
+      "transfer_relative_delta_percent": -1.226173439501468,
+      "containment_target_in_source": 0.4197209336341795,
+      "containment_source_in_target": 0.3316729790378006,
+      "symmetric_overlap": 0.4108819500404466
+    },
+    {
+      "pair": "dijkstra->bfs",
+      "source": "dijkstra",
+      "target": "bfs",
+      "source_label": "Dijkstra",
+      "target_label": "BFS",
+      "transfer_raw": 0.9975334405899048,
+      "transfer_raw_delta": -0.002466559410095215,
+      "transfer_relative_delta_percent": -0.24665594100952148,
+      "containment_target_in_source": 0.20264931666258634,
+      "containment_source_in_target": 0.26237573453199436,
+      "symmetric_overlap": 0.3936506775364603
+    },
+    {
+      "pair": "dijkstra->dag_shortest_paths",
+      "source": "dijkstra",
+      "target": "dag_shortest_paths",
+      "source_label": "Dijkstra",
+      "target_label": "DAG Shortest Paths",
+      "transfer_raw": 0.9858022928237915,
+      "transfer_raw_delta": -0.0016468167304992676,
+      "transfer_relative_delta_percent": -0.16677484586953534,
+      "containment_target_in_source": 0.29557505509432935,
+      "containment_source_in_target": 0.4794941365220693,
+      "symmetric_overlap": 0.5048261583750112
+    },
+    {
+      "pair": "dijkstra->prim",
+      "source": "dijkstra",
+      "target": "prim",
+      "source_label": "Dijkstra",
+      "target_label": "Prim",
+      "transfer_raw": 0.6697524785995483,
+      "transfer_raw_delta": -0.05862671136856079,
+      "transfer_relative_delta_percent": -8.048927286229535,
+      "containment_target_in_source": 0.18684729648598486,
+      "containment_source_in_target": 0.3532709208528486,
+      "symmetric_overlap": 0.39172772136301975
+    },
+    {
+      "pair": "prim->bf",
+      "source": "prim",
+      "target": "bf",
+      "source_label": "Prim",
+      "target_label": "Bellman-Ford",
+      "transfer_raw": 0.8937967419624329,
+      "transfer_raw_delta": 0.011690139770507812,
+      "transfer_relative_delta_percent": 1.3252524968591406,
+      "containment_target_in_source": 0.25262294886090075,
+      "containment_source_in_target": 0.18066970548094885,
+      "symmetric_overlap": 0.3874545965375661
+    },
+    {
+      "pair": "prim->bfs",
+      "source": "prim",
+      "target": "bfs",
+      "source_label": "Prim",
+      "target_label": "BFS",
+      "transfer_raw": 0.9992501139640808,
+      "transfer_raw_delta": -0.0007498860359191895,
+      "transfer_relative_delta_percent": -0.07498860359191895,
+      "containment_target_in_source": 0.19925309668981583,
+      "containment_source_in_target": 0.20265294772109244,
+      "symmetric_overlap": 0.34870197799407293
+    },
+    {
+      "pair": "prim->dag_shortest_paths",
+      "source": "prim",
+      "target": "dag_shortest_paths",
+      "source_label": "Prim",
+      "target_label": "DAG Shortest Paths",
+      "transfer_raw": 0.9850943088531494,
+      "transfer_raw_delta": -0.0023548007011413574,
+      "transfer_relative_delta_percent": -0.2384731201189957,
+      "containment_target_in_source": 0.1572527847488766,
+      "containment_source_in_target": 0.15027621685434822,
+      "symmetric_overlap": 0.347540684401185
+    },
+    {
+      "pair": "prim->dijkstra",
+      "source": "prim",
+      "target": "dijkstra",
+      "source_label": "Prim",
+      "target_label": "Dijkstra",
+      "transfer_raw": 0.8540024757385254,
+      "transfer_raw_delta": -0.011414706707000732,
+      "transfer_relative_delta_percent": -1.3189831376752488,
+      "containment_target_in_source": 0.3532709208528486,
+      "containment_source_in_target": 0.18684729648598486,
+      "symmetric_overlap": 0.39172772136301987
+    }
+  ]
+}

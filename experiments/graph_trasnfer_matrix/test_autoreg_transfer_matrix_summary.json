@@ -20,18 +20,34 @@
     "dag_shortest_paths"
   ],
   "primary_metrics": {
-    "bf": "bf_predecessor",
-    "bfs": "bfs_state",
-    "prim": "prim_predecessor",
-    "dijkstra": "dijkstra_predecessor",
-    "dag_shortest_paths": "dag_shortest_paths_predecessor"
+    "bf": [
+      "bf_distance",
+      "bf_predecessor"
+    ],
+    "bfs": [
+      "bfs_state"
+    ],
+    "prim": [
+      "prim_state",
+      "prim_key",
+      "prim_predecessor"
+    ],
+    "dijkstra": [
+      "dijkstra_distance",
+      "dijkstra_predecessor"
+    ],
+    "dag_shortest_paths": [
+      "dag_shortest_paths_distance",
+      "dag_shortest_paths_predecessor"
+    ]
   },
+  "primary_metric_definition": "Per-target mean of non-termination accuracies, then percent change vs own-processor baseline: 100 * (value - baseline) / baseline.",
   "primary_baseline_by_target": {
-    "bf": 0.8878675103187561,
+    "bf": 0.9018282294273376,
     "bfs": 0.9900000095367432,
-    "prim": 0.5873076915740967,
-    "dijkstra": 0.8628402948379517,
-    "dag_shortest_paths": 0.9943885207176208
+    "prim": 0.45276017487049103,
+    "dijkstra": 0.783835768699646,
+    "dag_shortest_paths": 0.943656712770462
   },
   "primary_matrix_csv": "experiments/graph_trasnfer_matrix/test_autoreg_primary_transfer_delta.csv",
   "primary_matrix_png": "experiments/graph_trasnfer_matrix/test_autoreg_primary_transfer_delta.png",
@@ -250,7 +266,8 @@
         "losses/bf_distance": 0.0035471885930746794,
         "losses/bf_predecessor": 0.23186041414737701,
         "losses/bf_termination": 0.7529361844062805
-      }
+      },
+      "task_nontermination_mean": 0.9018282294273376
     },
     {
       "source": "bf",
@@ -265,7 +282,8 @@
         "loss": 0.6699564456939697,
         "losses/bfs_state": 0.0437203124165535,
         "losses/bfs_termination": 0.6262361407279968
-      }
+      },
+      "task_nontermination_mean": 0.989300012588501
     },
     {
       "source": "bf",
@@ -284,7 +302,8 @@
         "losses/prim_key": 0.14385807514190674,
         "losses/prim_predecessor": 1.126159429550171,
         "losses/prim_termination": 7.477520942687988
-      }
+      },
+      "task_nontermination_mean": 0.4510178367296855
     },
     {
       "source": "bf",
@@ -301,7 +320,8 @@
         "losses/dijkstra_distance": 0.02722107246518135,
         "losses/dijkstra_predecessor": 0.4183287024497986,
         "losses/dijkstra_termination": 7.702183723449707
-      }
+      },
+      "task_nontermination_mean": 0.7089744806289673
     },
     {
       "source": "bf",
@@ -318,7 +338,8 @@
         "losses/dag_shortest_paths_distance": 0.023457247763872147,
         "losses/dag_shortest_paths_predecessor": 0.023519020527601242,
         "losses/dag_shortest_paths_termination": 5.821967124938965
-      }
+      },
+      "task_nontermination_mean": 0.8443076312541962
     },
     {
       "source": "bfs",
@@ -335,7 +356,8 @@
         "losses/bf_distance": 0.01106218434870243,
         "losses/bf_predecessor": 0.3307344317436218,
         "losses/bf_termination": 1.0291446447372437
-      }
+      },
+      "task_nontermination_mean": 0.7633090913295746
     },
     {
       "source": "bfs",
@@ -350,7 +372,8 @@
         "loss": 0.013784509152173996,
         "losses/bfs_state": 0.000411548389820382,
         "losses/bfs_termination": 0.01337296050041914
-      }
+      },
+      "task_nontermination_mean": 0.9900000095367432
     },
     {
       "source": "bfs",
@@ -369,7 +392,8 @@
         "losses/prim_key": 0.23959849774837494,
         "losses/prim_predecessor": 1.2689745426177979,
         "losses/prim_termination": 6.5318498611450195
-      }
+      },
+      "task_nontermination_mean": 0.4364290734132131
     },
     {
       "source": "bfs",
@@ -386,7 +410,8 @@
         "losses/dijkstra_distance": 0.06064892187714577,
         "losses/dijkstra_predecessor": 0.5828767418861389,
         "losses/dijkstra_termination": 7.865350723266602
-      }
+      },
+      "task_nontermination_mean": 0.5645647644996643
     },
     {
       "source": "bfs",
@@ -403,7 +428,8 @@
         "losses/dag_shortest_paths_distance": 0.023813186213374138,
         "losses/dag_shortest_paths_predecessor": 0.02072768472135067,
         "losses/dag_shortest_paths_termination": 7.779022693634033
-      }
+      },
+      "task_nontermination_mean": 0.7290032655000687
     },
     {
       "source": "prim",
@@ -420,7 +446,8 @@
         "losses/bf_distance": 0.009589145891368389,
         "losses/bf_predecessor": 0.3298439681529999,
         "losses/bf_termination": 1.0635099411010742
-      }
+      },
+      "task_nontermination_mean": 0.7631644010543823
     },
     {
       "source": "prim",
@@ -435,7 +462,8 @@
         "loss": 0.7876423597335815,
         "losses/bfs_state": 0.05749722942709923,
         "losses/bfs_termination": 0.7301450371742249
-      }
+      },
+      "task_nontermination_mean": 0.9880000352859497
     },
     {
       "source": "prim",
@@ -454,7 +482,8 @@
         "losses/prim_key": 0.19832450151443481,
         "losses/prim_predecessor": 1.103000283241272,
         "losses/prim_termination": 7.831006050109863
-      }
+      },
+      "task_nontermination_mean": 0.45276017487049103
     },
     {
       "source": "prim",
@@ -471,7 +500,8 @@
         "losses/dijkstra_distance": 0.08694523572921753,
         "losses/dijkstra_predecessor": 0.6300960183143616,
         "losses/dijkstra_termination": 7.648209095001221
-      }
+      },
+      "task_nontermination_mean": 0.5773929357528687
     },
     {
       "source": "prim",
@@ -488,7 +518,8 @@
         "losses/dag_shortest_paths_distance": 0.01939229480922222,
         "losses/dag_shortest_paths_predecessor": 0.02445940487086773,
         "losses/dag_shortest_paths_termination": 5.112165927886963
-      }
+      },
+      "task_nontermination_mean": 0.9176368713378906
     },
     {
       "source": "dijkstra",
@@ -505,7 +536,8 @@
         "losses/bf_distance": 0.00718667171895504,
         "losses/bf_predecessor": 0.29146260023117065,
         "losses/bf_termination": 1.4159704446792603
-      }
+      },
+      "task_nontermination_mean": 0.8251371681690216
     },
     {
       "source": "dijkstra",
@@ -520,7 +552,8 @@
         "loss": 0.8084700703620911,
         "losses/bfs_state": 0.048030786216259,
         "losses/bfs_termination": 0.7604395151138306
-      }
+      },
+      "task_nontermination_mean": 0.9868583679199219
     },
     {
       "source": "dijkstra",
@@ -539,7 +572,8 @@
         "losses/prim_key": 0.1685459166765213,
         "losses/prim_predecessor": 1.2044016122817993,
         "losses/prim_termination": 6.88648796081543
-      }
+      },
+      "task_nontermination_mean": 0.46209288636843365
     },
     {
       "source": "dijkstra",
@@ -556,7 +590,8 @@
         "losses/dijkstra_distance": 0.01678595133125782,
         "losses/dijkstra_predecessor": 0.3239823877811432,
         "losses/dijkstra_termination": 5.050555229187012
-      }
+      },
+      "task_nontermination_mean": 0.783835768699646
     },
     {
       "source": "dijkstra",
@@ -573,7 +608,8 @@
         "losses/dag_shortest_paths_distance": 0.02620162069797516,
         "losses/dag_shortest_paths_predecessor": 0.019929325208067894,
         "losses/dag_shortest_paths_termination": 6.097438335418701
-      }
+      },
+      "task_nontermination_mean": 0.7482054829597473
     },
     {
       "source": "dag_shortest_paths",
@@ -590,7 +626,8 @@
         "losses/bf_distance": 0.010144245810806751,
         "losses/bf_predecessor": 0.3454824686050415,
         "losses/bf_termination": 1.316839337348938
-      }
+      },
+      "task_nontermination_mean": 0.7870840132236481
     },
     {
       "source": "dag_shortest_paths",
@@ -605,7 +642,8 @@
         "loss": 0.8497563004493713,
         "losses/bfs_state": 0.03797660022974014,
         "losses/bfs_termination": 0.8117800354957581
-      }
+      },
+      "task_nontermination_mean": 0.9900000095367432
     },
     {
       "source": "dag_shortest_paths",
@@ -624,7 +662,8 @@
         "losses/prim_key": 0.14539584517478943,
         "losses/prim_predecessor": 1.179033637046814,
         "losses/prim_termination": 6.732171535491943
-      }
+      },
+      "task_nontermination_mean": 0.45124368866284686
     },
     {
       "source": "dag_shortest_paths",
@@ -641,7 +680,8 @@
         "losses/dijkstra_distance": 0.055001549422740936,
         "losses/dijkstra_predecessor": 0.5756623148918152,
         "losses/dijkstra_termination": 8.296517372131348
-      }
+      },
+      "task_nontermination_mean": 0.6177892833948135
     },
     {
       "source": "dag_shortest_paths",
@@ -658,7 +698,8 @@
         "losses/dag_shortest_paths_distance": 0.011823314242064953,
         "losses/dag_shortest_paths_predecessor": 0.016614550724625587,
         "losses/dag_shortest_paths_termination": 1.3225719928741455
-      }
+      },
+      "task_nontermination_mean": 0.943656712770462
     }
   ]
 }

@@ -1,0 +1,6 @@
+segment,pc1_explained_variance_ratio,pc2_explained_variance_ratio,cumulative_explained_variance_ratio
+5 active,0.384204,0.268771,0.652975
+4 active,0.734141,0.143050,0.877191
+3 active,0.999986,0.000010,0.999996
+2 active,0.999999,0.000001,1.000000
+1 active,1.000000,0.000000,1.000000

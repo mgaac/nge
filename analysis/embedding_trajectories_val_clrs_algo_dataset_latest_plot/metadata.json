@@ -1,0 +1,448 @@
+{
+  "config_name": "clrs-graphs",
+  "checkpoint_step": 200,
+  "algorithms": [
+    "bf",
+    "bfs",
+    "prim",
+    "dijkstra",
+    "dag_shortest_paths"
+  ],
+  "isolate_input_algorithm": null,
+  "isolate_other_inputs_mode": "zero_others",
+  "latent": "processed",
+  "node_agg": "max",
+  "step_policy": "common",
+  "graph_index": null,
+  "target_steps": 20,
+  "original_target_steps": 20,
+  "extra_steps": 0,
+  "execution_window": "all",
+  "execution_window_label": null,
+  "execution_window_steps": 20,
+  "latent_dim": 160,
+  "pca_components_requested": 2,
+  "dataset": "data/val_clrs_algo_dataset.npz",
+  "split": null,
+  "num_graphs": 100,
+  "selected_graph_indices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61,
+    62,
+    63,
+    64,
+    65,
+    66,
+    67,
+    68,
+    69,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75,
+    76,
+    77,
+    78,
+    79,
+    80,
+    81,
+    82,
+    83,
+    84,
+    85,
+    86,
+    87,
+    88,
+    89,
+    90,
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99
+  ],
+  "trajectory_shape": [
+    100,
+    20,
+    160
+  ],
+  "trajectory_matrix_shape": [
+    100,
+    3200
+  ],
+  "step_matrix_shape": [
+    2000,
+    160
+  ],
+  "pca_fit_excludes_extra_steps": false,
+  "pca_fit_steps": 20,
+  "pca_fit_step_matrix_shape": [
+    2000,
+    160
+  ],
+  "pca_fit_trajectory_matrix_shape": [
+    100,
+    3200
+  ],
+  "step_pca_mean_coordinates": [
+    {
+      "step": 0,
+      "mean_coordinate": [
+        -2.1322357654571533,
+        -2.2732584476470947
+      ]
+    },
+    {
+      "step": 1,
+      "mean_coordinate": [
+        -1.4120930433273315,
+        -1.9572205543518066
+      ]
+    },
+    {
+      "step": 2,
+      "mean_coordinate": [
+        -1.2110304832458496,
+        -4.696949481964111
+      ]
+    },
+    {
+      "step": 3,
+      "mean_coordinate": [
+        1.9416581392288208,
+        -6.687946796417236
+      ]
+    },
+    {
+      "step": 4,
+      "mean_coordinate": [
+        6.870258808135986,
+        -6.343374252319336
+      ]
+    },
+    {
+      "step": 5,
+      "mean_coordinate": [
+        10.650120735168457,
+        -4.306300640106201
+      ]
+    },
+    {
+      "step": 6,
+      "mean_coordinate": [
+        11.844552993774414,
+        -0.19961079955101013
+      ]
+    },
+    {
+      "step": 7,
+      "mean_coordinate": [
+        10.467304229736328,
+        4.344179153442383
+      ]
+    },
+    {
+      "step": 8,
+      "mean_coordinate": [
+        7.197056293487549,
+        8.523214340209961
+      ]
+    },
+    {
+      "step": 9,
+      "mean_coordinate": [
+        2.480471134185791,
+        11.308605194091797
+      ]
+    },
+    {
+      "step": 10,
+      "mean_coordinate": [
+        -2.1766207218170166,
+        11.254729270935059
+      ]
+    },
+    {
+      "step": 11,
+      "mean_coordinate": [
+        -6.4137187004089355,
+        8.462738990783691
+      ]
+    },
+    {
+      "step": 12,
+      "mean_coordinate": [
+        -9.467206954956055,
+        3.8299002647399902
+      ]
+    },
+    {
+      "step": 13,
+      "mean_coordinate": [
+        -9.477799415588379,
+        -0.6274577975273132
+      ]
+    },
+    {
+      "step": 14,
+      "mean_coordinate": [
+        -6.716426372528076,
+        -3.215268611907959
+      ]
+    },
+    {
+      "step": 15,
+      "mean_coordinate": [
+        -3.984576463699341,
+        -4.00090217590332
+      ]
+    },
+    {
+      "step": 16,
+      "mean_coordinate": [
+        -2.6563076972961426,
+        -3.3990633487701416
+      ]
+    },
+    {
+      "step": 17,
+      "mean_coordinate": [
+        -2.19728684425354,
+        -3.447108507156372
+      ]
+    },
+    {
+      "step": 18,
+      "mean_coordinate": [
+        -1.8976702690124512,
+        -3.3790576457977295
+      ]
+    },
+    {
+      "step": 19,
+      "mean_coordinate": [
+        -1.7084579467773438,
+        -3.189826250076294
+      ]
+    }
+  ],
+  "completion_probe_shape": [
+    100,
+    160
+  ],
+  "completion_probe_graph_indices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61,
+    62,
+    63,
+    64,
+    65,
+    66,
+    67,
+    68,
+    69,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75,
+    76,
+    77,
+    78,
+    79,
+    80,
+    81,
+    82,
+    83,
+    84,
+    85,
+    86,
+    87,
+    88,
+    89,
+    90,
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99
+  ],
+  "step_pca_completion_probe_mean_coordinate": [
+    -1.4235949516296387,
+    -3.1751773357391357
+  ],
+  "step_pca_completion_probe_count": 100,
+  "trajectory_pca_components_used": 2,
+  "step_pca_components_used": 2,
+  "trajectory_pca_pairwise_views": [],
+  "step_pca_pairwise_views": [],
+  "step_pca_algorithm_reference_chain": [
+    {
+      "algorithm": "bf",
+      "mean_end_step": 2.79,
+      "reference_step": 3,
+      "mean_coordinate": [
+        1.9416581392288208,
+        -6.687946796417236
+      ]
+    },
+    {
+      "algorithm": "bfs",
+      "mean_end_step": 3.67,
+      "reference_step": 4,
+      "mean_coordinate": [
+        6.870258808135986,
+        -6.343374252319336
+      ]
+    },
+    {
+      "algorithm": "prim",
+      "mean_end_step": 5.53,
+      "reference_step": 6,
+      "mean_coordinate": [
+        11.844552993774414,
+        -0.19961079955101013
+      ]
+    },
+    {
+      "algorithm": "dijkstra",
+      "mean_end_step": 5.53,
+      "reference_step": 6,
+      "mean_coordinate": [
+        11.844552993774414,
+        -0.19961079955101013
+      ]
+    }
+  ]
+}
